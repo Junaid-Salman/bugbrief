@@ -1,38 +1,80 @@
 import type { Protocol } from 'devtools-protocol';
 import {
-  foldConsole,
-  foldNetwork,
-  toConsoleEntry,
-  toNetworkEntry,
-} from '../core/consolidate';
-import type { ConsoleEntry, NetworkEntry } from '../core/types';
-import type { RecordingState } from '../shared/messages';
+  countsOf,
+  getPending,
+  insertConsole,
+  insertNetwork,
+  markedPending,
+  setPending,
+  takePending,
+} from '../core/buffer-model';
+import { FIELD, capText } from '../core/limits';
+import type { NetworkEntry, PendingRequest, RawConsoleEntry } from '../core/types';
+import type { BufferCounts, RecordingState } from '../shared/messages';
 import { isRestrictedAttachError, isRestrictedUrl, RESTRICTED_MESSAGE } from '../shared/restricted';
+import { createBuffer, type SessionStorageLike } from './buffer';
 import {
+  buildHttpErrorEntry,
   mapConsoleApi,
   mapException,
   mapLoadingFailed,
   mapLogEntry,
-  mapResponse,
+  markResponse,
+  shouldFetchBody,
   trackRequest,
-  type RequestRecord,
 } from './cdp-map';
-import { getCurrent, reconcile, setState } from './state';
+import { drain, TimeoutError, withTimeout } from './drain';
+import { debugEnabled, log } from './log';
+import { getCurrent, reconcile, setSessionLostHandler, setState } from './state';
+import {
+  DETACH_TIMEOUT_MS,
+  DRAIN_TIMEOUT_MS,
+  FETCH_TIMEOUT_MS,
+  FINISH_BUDGET_MS,
+  METADATA_TIMEOUT_MS,
+  START_STEP_TIMEOUT_MS,
+} from './timeouts';
 
 const PROTOCOL_VERSIONS = ['1.3', '0.1'] as const;
-const LOG_PREFIX = '[BugBrief]';
-
-// P2 keeps these in memory only. P3 moves them into persisted buffers.
-const consoleEntries = new Map<string, ConsoleEntry>();
-const networkEntries = new Map<string, NetworkEntry>();
-const pendingRequests = new Map<string, RequestRecord>();
-
-// Resolves once the stored state is verified, so events that wake the worker are not dropped.
-export const ready: Promise<RecordingState> = reconcile().catch(() => ({ status: 'idle' }) as RecordingState);
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+export type FinishReason = 'stop' | 'canceled_by_user' | 'target_closed' | 'tab_removed';
+
+const buffer = createBuffer(chrome.storage.session as unknown as SessionStorageLike, {
+  log: (message, detail) => log.warn(`buffer: ${message}`, { error: errorMessage(detail) }),
+});
+
+const inFlight = new Set<Promise<unknown>>();
+// One token per body fetch that is running. Finishing a session marks it abandoned, so a fetch
+// that outlives the drain can no longer insert an entry after the session has stopped.
+interface FetchToken {
+  abandoned: boolean;
+}
+const fetching = new Map<string, FetchToken>();
+let draining = false;
+let finishing: Promise<RecordingState> | undefined;
+
+// A session found dead (for example after a worker restart) still owns marked pending requests.
+// Insert them without a body and save, exactly as a normal finish would.
+setSessionLostHandler(async () => {
+  insertUnfinishedMarked();
+  await buffer.flush();
+  log.info('session lost, pending requests finalized');
+});
+
+// Resolves once buffers are loaded and the stored state is verified, so events that wake the worker are not dropped.
+export const ready: Promise<RecordingState> = (async () => {
+  await buffer.rehydrate();
+  try {
+    return await reconcile();
+  } catch {
+    return { status: 'idle' } as RecordingState;
+  }
+})();
+
 
 async function attachWithFallback(tabId: number): Promise<string> {
   const target: chrome.debugger.Debuggee = { tabId };
@@ -67,28 +109,55 @@ function wrapAttachError(error: unknown): Error {
   return new Error(message);
 }
 
+function sendBounded(tabId: number, method: string, params?: Record<string, unknown>): Promise<unknown> {
+  return withTimeout(chrome.debugger.sendCommand({ tabId }, method, params), START_STEP_TIMEOUT_MS).catch((error: unknown) => {
+    if (error instanceof TimeoutError) throw new Error(`${method} timed out`);
+    throw error;
+  });
+}
+
 async function enableDomains(tabId: number): Promise<void> {
-  const target: chrome.debugger.Debuggee = { tabId };
-  await chrome.debugger.sendCommand(target, 'Runtime.enable');
-  await chrome.debugger.sendCommand(target, 'Log.enable');
-  await chrome.debugger.sendCommand(target, 'Network.enable', {
+  await sendBounded(tabId, 'Runtime.enable');
+  await sendBounded(tabId, 'Log.enable');
+  await sendBounded(tabId, 'Page.enable');
+  await sendBounded(tabId, 'Network.enable', {
     maxResourceBufferSize: 5_000_000,
     maxTotalBufferSize: 25_000_000,
   });
 }
 
-function resetBuffers(): void {
-  consoleEntries.clear();
-  networkEntries.clear();
-  pendingRequests.clear();
+async function seedMainFrame(tabId: number, fallbackUrl: string | undefined): Promise<void> {
+  let frameId: string | undefined;
+  let url = fallbackUrl;
+  try {
+    const result = (await sendBounded(tabId, 'Page.getFrameTree')) as Protocol.Page.GetFrameTreeResponse;
+    frameId = result.frameTree.frame.id;
+    url = result.frameTree.frame.url;
+  } catch (error) {
+    log.warn('could not read the frame tree', { error: errorMessage(error) });
+  }
+  buffer.mutate((state) => {
+    if (frameId) state.mainFrameId = frameId;
+    if (url) state.pageUrl = capText(url, FIELD.pageUrl).text;
+  });
 }
 
-export async function startRecording(tabId: number): Promise<RecordingState> {
+// Start, Stop and Clear run one at a time. finishSession is not locked (it is already idempotent),
+// so Cancel and tab-close events never wait here and a locked call can safely finish a session.
+let lock: Promise<unknown> = Promise.resolve();
+
+function runExclusive<T>(task: () => Promise<T>): Promise<T> {
+  const run = lock.then(task, task);
+  lock = run.catch(() => undefined);
+  return run;
+}
+
+async function startRecordingLocked(tabId: number): Promise<RecordingState> {
   await ready;
   const state = await reconcile();
   if (state.status === 'recording') {
     if (state.tabId === tabId) return state;
-    await stopRecording();
+    await finishSession('stop');
   }
 
   const tab = await chrome.tabs.get(tabId);
@@ -102,11 +171,27 @@ export async function startRecording(tabId: number): Promise<RecordingState> {
     throw new Error(`Could not enable debugging domains: ${errorMessage(error)}`);
   }
 
-  resetBuffers();
-  const recording: RecordingState = { status: 'recording', tabId, startedAt: Date.now() };
-  await setState(recording);
-  console.log(`${LOG_PREFIX} recording started`, { tabId, protocolVersion: version });
-  return recording;
+  try {
+    inFlight.clear();
+    fetching.clear();
+    // Reset the buffer and set the recording state in the same tick, so no event can fall in a gap.
+    const resetting = buffer.reset();
+    const recording: RecordingState = { status: 'recording', tabId, startedAt: Date.now() };
+    const setting = setState(recording);
+    if (tab.url) buffer.mutate((current) => void (current.pageUrl = capText(tab.url as string, FIELD.pageUrl).text));
+    await Promise.all([resetting, setting]);
+    await seedMainFrame(tabId, tab.url);
+    log.info('recording started', { tabId, protocolVersion: version });
+    return recording;
+  } catch (error) {
+    await chrome.debugger.detach({ tabId }).catch(() => undefined);
+    await setState({ status: 'idle' }).catch(() => undefined);
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+}
+
+export function startRecording(tabId: number): Promise<RecordingState> {
+  return runExclusive(() => startRecordingLocked(tabId));
 }
 
 const PAGE_METADATA_EXPRESSION = `JSON.stringify({
@@ -116,55 +201,217 @@ const PAGE_METADATA_EXPRESSION = `JSON.stringify({
   viewport: { width: innerWidth, height: innerHeight }
 })`;
 
-export async function stopRecording(): Promise<RecordingState> {
-  await ready;
-  const state = getCurrent();
-  if (state.status !== 'recording') return state;
-
+async function readPageMetadata(tabId: number): Promise<void> {
   try {
-    const result = (await chrome.debugger.sendCommand({ tabId: state.tabId }, 'Runtime.evaluate', {
+    const result = (await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
       expression: PAGE_METADATA_EXPRESSION,
       returnByValue: true,
     })) as Protocol.Runtime.EvaluateResponse;
-    console.log(`${LOG_PREFIX} page metadata`, result.result.value);
+    log.debug('page metadata', { value: result.result.value });
   } catch (error) {
-    console.warn(`${LOG_PREFIX} could not read page metadata`, errorMessage(error));
+    log.warn('could not read page metadata', { error: errorMessage(error) });
   }
-  await chrome.debugger.detach({ tabId: state.tabId }).catch(() => undefined);
-  return markStopped(state);
 }
 
-async function markStopped(state: Extract<RecordingState, { status: 'recording' }>): Promise<RecordingState> {
-  const stopped: RecordingState = {
-    status: 'stopped',
-    tabId: state.tabId,
-    startedAt: state.startedAt,
-    stoppedAt: Date.now(),
+async function logSummary(reason: FinishReason): Promise<void> {
+  const current = buffer.getState();
+  const titles = (entries: typeof current.console) =>
+    entries.map((entry) => `${entry.message.split('\n')[0]?.slice(0, 80)} (×${entry.count})`);
+  const consoleTitles = titles(current.console);
+  let bytes: number | undefined;
+  try {
+    bytes = await chrome.storage.session.getBytesInUse();
+  } catch {
+    bytes = undefined;
+  }
+  log.debug('buffer summary', {
+    reason,
+    counts: countsOf(current),
+    firstConsole: consoleTitles.slice(0, 5),
+    lastConsole: consoleTitles.slice(-5),
+    network: current.network.map((entry) => ({
+      entry: `${entry.method} ${safePath(entry.url)} ${entry.status ?? entry.errorText ?? 'ERR'} ×${entry.count}`,
+      requestBodyLength: entry.requestBody?.length ?? 0,
+      requestBodyTruncated: entry.requestBodyTruncated ?? false,
+      responseBodyLength: entry.responseBody?.length ?? 0,
+      responseBodyTruncated: entry.responseBodyTruncated ?? false,
+      pageUrl: entry.pageUrl,
+    })),
+    pageUrl: current.pageUrl,
+    storageBytesInUse: bytes,
+    persistenceOk: buffer.persistenceOk(),
+  });
+}
+
+function safePath(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Inserts every marked 400+ response that has no entry yet, without a body, and clears pending.
+ * A body fetch still running for one of them is abandoned so it cannot insert a second entry.
+ */
+function insertUnfinishedMarked(): void {
+  buffer.mutate((current) => {
+    for (const record of markedPending(current)) {
+      const token = fetching.get(record.requestId);
+      if (token) token.abandoned = true;
+      insertNetwork(current, buildHttpErrorEntry(record));
+    }
+    current.pending = [];
+  });
+}
+
+/** Pre-flush phase of Stop. Each step is time-limited, and the caller caps the whole thing. */
+async function stopSequence(tabId: number): Promise<void> {
+  const drained = await drain(inFlight, DRAIN_TIMEOUT_MS);
+  if (!drained) log.warn('drain timed out', { inFlight: inFlight.size });
+  // Only feeds a debug log today. P7 will capture the page details for the capsule.
+  if (debugEnabled()) await withTimeout(readPageMetadata(tabId), METADATA_TIMEOUT_MS).catch(() => undefined);
+  await withTimeout(chrome.debugger.detach({ tabId }), DETACH_TIMEOUT_MS).catch(() => undefined);
+}
+
+/**
+ * The only place a session ends. Idempotent: Stop, banner Cancel and tab close can overlap and
+ * share one run. Stop drains in-flight body fetches first. Cancel and tab close skip the drain
+ * because the debugger is already gone. Nothing before the flush can block for longer than
+ * FINISH_BUDGET_MS, so a frozen tab can never keep a session from reaching "stopped".
+ */
+export function finishSession(reason: FinishReason): Promise<RecordingState> {
+  if (finishing) return finishing;
+  const state = getCurrent();
+  if (state.status !== 'recording') return Promise.resolve(state);
+
+  const run = async (): Promise<RecordingState> => {
+    if (reason === 'stop') {
+      draining = true;
+      await withTimeout(stopSequence(state.tabId), FINISH_BUDGET_MS).catch((error: unknown) => {
+        log.warn('stop sequence did not finish', { error: errorMessage(error) });
+      });
+      // Safety net if a step above timed out before the detach ran. Detaching twice is harmless.
+      void chrome.debugger.detach({ tabId: state.tabId }).catch(() => undefined);
+    }
+    insertUnfinishedMarked();
+    await buffer.flush();
+    const stopped: RecordingState = {
+      status: 'stopped',
+      tabId: state.tabId,
+      startedAt: state.startedAt,
+      stoppedAt: Date.now(),
+    };
+    await setState(stopped);
+    log.info('recording stopped', { tabId: state.tabId, reason, counts: countsOf(buffer.getState()) });
+    if (debugEnabled()) await logSummary(reason);
+    return stopped;
   };
-  await setState(stopped);
-  console.log(`${LOG_PREFIX} recording stopped`, { tabId: state.tabId });
-  return stopped;
+
+  finishing = run().finally(() => {
+    draining = false;
+    finishing = undefined;
+  });
+  return finishing;
 }
 
-function recordConsole(raw: ReturnType<typeof mapException> | null): void {
-  if (!raw) return;
-  const incoming = toConsoleEntry(raw);
-  const existing = consoleEntries.get(incoming.fingerprint);
-  const entry = existing ? foldConsole(existing, incoming) : incoming;
-  consoleEntries.set(entry.fingerprint, entry);
-  const { rawHashes: _rawHashes, ...printable } = entry;
-  console.log(`${LOG_PREFIX} console`, { merged: existing !== undefined, ...printable });
+export function stopRecording(): Promise<RecordingState> {
+  return runExclusive(async () => {
+    await ready;
+    return finishSession('stop');
+  });
 }
 
-function recordNetwork(raw: ReturnType<typeof mapResponse> | null): void {
-  if (!raw) return;
-  const incoming = toNetworkEntry(raw);
-  const existing = networkEntries.get(incoming.fingerprint);
-  const entry = existing ? foldNetwork(existing, incoming) : incoming;
-  networkEntries.set(entry.fingerprint, entry);
-  const { rawHashes: _rawHashes, requestHeaders: _headers, ...printable } = entry;
-  console.log(`${LOG_PREFIX} network`, { merged: existing !== undefined, ...printable });
+export function clearBuffers(): Promise<RecordingState> {
+  return runExclusive(async () => {
+    await ready;
+    if (getCurrent().status === 'recording') throw new Error('Stop recording before clearing.');
+    await buffer.reset();
+    const idle: RecordingState = { status: 'idle' };
+    await setState(idle);
+    return idle;
+  });
 }
+
+export async function getCounts(): Promise<{ counts: BufferCounts; persistenceOk: boolean }> {
+  await ready;
+  return { counts: countsOf(buffer.getState()), persistenceOk: buffer.persistenceOk() };
+}
+
+function recordConsole(raw: RawConsoleEntry | null): void {
+  if (!raw) return;
+  const pageUrl = buffer.getState().pageUrl;
+  const entry = pageUrl ? { ...raw, pageUrl } : raw;
+  let result: ReturnType<typeof insertConsole> | undefined;
+  buffer.mutate((state) => {
+    result = insertConsole(state, entry);
+  });
+  if (result) logEntry('console', result.entry, result.merged);
+}
+
+function logEntry(kind: 'console' | 'network', entry: object, merged: boolean): void {
+  const { rawHashes: _rawHashes, requestHeaders: _headers, seq: _seq, touched: _touched, ...printable } = entry as Record<string, unknown>;
+  log.debug(kind, { merged, ...printable });
+}
+
+async function fetchResponseBody(tabId: number, record: PendingRequest, encodedDataLength: number): Promise<string | undefined> {
+  if (!shouldFetchBody(record.mimeType, encodedDataLength)) return undefined;
+  try {
+    const result = (await withTimeout(
+      chrome.debugger.sendCommand({ tabId }, 'Network.getResponseBody', { requestId: record.requestId }),
+      FETCH_TIMEOUT_MS,
+    )) as Protocol.Network.GetResponseBodyResponse;
+    return result.base64Encoded ? undefined : result.body;
+  } catch {
+    return undefined;
+  }
+}
+
+async function fetchRequestBody(tabId: number, record: PendingRequest): Promise<string | undefined> {
+  if (record.postData !== undefined || !record.hasPostData) return undefined;
+  try {
+    const result = (await withTimeout(
+      chrome.debugger.sendCommand({ tabId }, 'Network.getRequestPostData', { requestId: record.requestId }),
+      FETCH_TIMEOUT_MS,
+    )) as Protocol.Network.GetRequestPostDataResponse;
+    return result.base64Encoded ? undefined : result.postData;
+  } catch {
+    return undefined;
+  }
+}
+
+function track(task: Promise<void>): void {
+  const wrapped: Promise<void> = task.catch(() => undefined).finally(() => {
+    inFlight.delete(wrapped);
+  });
+  inFlight.add(wrapped);
+}
+
+function finalizeMarked(tabId: number, record: PendingRequest, encodedDataLength: number): void {
+  const token = buffer.generation();
+  const fetchToken: FetchToken = { abandoned: false };
+  fetching.set(record.requestId, fetchToken);
+  track(
+    (async () => {
+      const [body, requestBody] = await Promise.all([
+        fetchResponseBody(tabId, record, encodedDataLength),
+        fetchRequestBody(tabId, record),
+      ]);
+      if (fetching.get(record.requestId) === fetchToken) fetching.delete(record.requestId);
+      if (fetchToken.abandoned || !buffer.isCurrent(token)) return;
+      const raw = buildHttpErrorEntry(record, body, requestBody);
+      let result: { entry: NetworkEntry; merged: boolean } | undefined;
+      buffer.mutate((state) => {
+        takePending(state, record.requestId);
+        result = insertNetwork(state, raw);
+      });
+      if (result) logEntry('network', result.entry, result.merged);
+    })(),
+  );
+}
+
+const DRAIN_METHODS = new Set(['Network.loadingFinished', 'Network.loadingFailed']);
 
 export async function handleEvent(
   source: chrome.debugger.DebuggerSession,
@@ -174,8 +421,26 @@ export async function handleEvent(
   await ready;
   const state = getCurrent();
   if (state.status !== 'recording' || source.tabId !== state.tabId || !params) return;
+  if (draining && !DRAIN_METHODS.has(method)) return;
 
   switch (method) {
+    case 'Page.frameNavigated': {
+      const frame = (params as Protocol.Page.FrameNavigatedEvent).frame;
+      if (frame.parentId) break;
+      buffer.mutate((current) => {
+        current.mainFrameId = frame.id;
+        current.pageUrl = capText(frame.url, FIELD.pageUrl).text;
+      });
+      break;
+    }
+    case 'Page.navigatedWithinDocument': {
+      const event = params as Protocol.Page.NavigatedWithinDocumentEvent;
+      if (event.frameId !== buffer.getState().mainFrameId) break;
+      buffer.mutate((current) => {
+        current.pageUrl = capText(event.url, FIELD.pageUrl).text;
+      });
+      break;
+    }
     case 'Runtime.exceptionThrown':
       recordConsole(mapException(params as Protocol.Runtime.ExceptionThrownEvent));
       break;
@@ -187,23 +452,36 @@ export async function handleEvent(
       break;
     case 'Network.requestWillBeSent': {
       const record = trackRequest(params as Protocol.Network.RequestWillBeSentEvent);
-      pendingRequests.set(record.requestId, record);
+      const pageUrl = buffer.getState().pageUrl;
+      if (pageUrl) record.pageUrl = pageUrl;
+      buffer.mutate((current) => setPending(current, record), false);
       break;
     }
     case 'Network.responseReceived': {
       const event = params as Protocol.Network.ResponseReceivedEvent;
-      recordNetwork(mapResponse(event, pendingRequests.get(event.requestId)));
+      const marked = markResponse(getPending(buffer.getState(), event.requestId), event);
+      if (marked) buffer.mutate((current) => setPending(current, marked));
+      break;
+    }
+    case 'Network.loadingFinished': {
+      const event = params as Protocol.Network.LoadingFinishedEvent;
+      const record = getPending(buffer.getState(), event.requestId);
+      if (record?.marked) finalizeMarked(state.tabId, record, event.encodedDataLength);
+      else buffer.mutate((current) => void takePending(current, event.requestId), false);
       break;
     }
     case 'Network.loadingFailed': {
       const event = params as Protocol.Network.LoadingFailedEvent;
-      recordNetwork(mapLoadingFailed(event, pendingRequests.get(event.requestId)));
-      pendingRequests.delete(event.requestId);
+      const record = getPending(buffer.getState(), event.requestId);
+      const raw = mapLoadingFailed(event, record);
+      let result: { entry: NetworkEntry; merged: boolean } | undefined;
+      buffer.mutate((current) => {
+        takePending(current, event.requestId);
+        if (raw) result = insertNetwork(current, raw);
+      }, raw !== null || record?.marked === true);
+      if (result) logEntry('network', result.entry, result.merged);
       break;
     }
-    case 'Network.loadingFinished':
-      pendingRequests.delete((params as Protocol.Network.LoadingFinishedEvent).requestId);
-      break;
     default:
       break;
   }
@@ -213,13 +491,13 @@ export async function handleDetach(source: chrome.debugger.Debuggee, reason: str
   await ready;
   const state = getCurrent();
   if (state.status !== 'recording' || source.tabId !== state.tabId) return;
-  console.log(`${LOG_PREFIX} debugger detached`, { reason });
-  await markStopped(state);
+  log.info('debugger detached', { reason });
+  await finishSession(reason === 'canceled_by_user' ? 'canceled_by_user' : 'target_closed');
 }
 
 export async function handleTabRemoved(tabId: number): Promise<void> {
   await ready;
   const state = getCurrent();
   if (state.status !== 'recording' || state.tabId !== tabId) return;
-  await markStopped(state);
+  await finishSession('tab_removed');
 }

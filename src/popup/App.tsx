@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import type { PopupToWorker, RecordingState, WorkerResponse } from '../shared/messages';
+import type { BufferCounts, PopupToWorker, RecordingState, WorkerResponse } from '../shared/messages';
 import { isRestrictedUrl, RESTRICTED_MESSAGE } from '../shared/restricted';
 import { Explainer } from './Explainer';
 
@@ -7,6 +7,10 @@ const EXPLAINER_KEY = 'explainerSeen';
 
 function send(message: PopupToWorker): Promise<WorkerResponse> {
   return chrome.runtime.sendMessage(message) as Promise<WorkerResponse>;
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 const label: Record<RecordingState['status'], string> = {
@@ -21,26 +25,48 @@ export function App() {
   const [explainerSeen, setExplainerSeen] = useState<boolean | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
+  const [counts, setCounts] = useState<BufferCounts | undefined>();
+  const [persistenceOk, setPersistenceOk] = useState(true);
+  // False until the worker answers the first GET_STATE, so a slow answer never shows a false Idle.
+  const [loaded, setLoaded] = useState(false);
+
+  function apply(response: WorkerResponse): void {
+    if (response.ok) {
+      setState(response.state);
+      if (response.counts) setCounts(response.counts);
+      if (response.persistenceOk !== undefined) setPersistenceOk(response.persistenceOk);
+    } else {
+      setError(response.error);
+    }
+  }
 
   useEffect(() => {
     void (async () => {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      setTab(activeTab);
-      const stored = await chrome.storage.local.get(EXPLAINER_KEY);
-      setExplainerSeen(stored[EXPLAINER_KEY] === true);
-      const response = await send({ type: 'GET_STATE' });
-      if (response.ok) setState(response.state);
-      else setError(response.error);
+      try {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        setTab(activeTab);
+        const stored = await chrome.storage.local.get(EXPLAINER_KEY);
+        setExplainerSeen(stored[EXPLAINER_KEY] === true);
+        apply(await send({ type: 'GET_STATE' }));
+      } catch (caught) {
+        setExplainerSeen((seen) => seen ?? true);
+        setError(describe(caught));
+      } finally {
+        setLoaded(true);
+      }
     })();
   }, []);
 
   async function run(message: PopupToWorker): Promise<void> {
     setBusy(true);
     setError(undefined);
-    const response = await send(message);
-    if (response.ok) setState(response.state);
-    else setError(response.error);
-    setBusy(false);
+    try {
+      apply(await send(message));
+    } catch (caught) {
+      setError(describe(caught));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function dismissExplainer(): Promise<void> {
@@ -65,16 +91,16 @@ export function App() {
     <main style={styles.main}>
       <h1 style={styles.title}>BugBrief</h1>
       <p style={styles.status}>
-        Status: <strong>{label[state.status]}</strong>
+        Status: <strong>{loaded ? label[state.status] : 'Checking…'}</strong>
       </p>
       {restricted ? <p style={styles.error}>{RESTRICTED_MESSAGE}</p> : null}
       {state.status === 'recording' ? (
-        <button disabled={busy} onClick={() => void run({ type: 'STOP_RECORDING' })}>
+        <button disabled={busy || !loaded} onClick={() => void run({ type: 'STOP_RECORDING' })}>
           Stop recording
         </button>
       ) : (
         <button
-          disabled={busy || restricted || tab?.id === undefined}
+          disabled={busy || !loaded || restricted || tab?.id === undefined}
           onClick={() => tab?.id !== undefined && void run({ type: 'START_RECORDING', tabId: tab.id })}
         >
           Start recording
@@ -83,8 +109,40 @@ export function App() {
       {state.status === 'recording' && !recordingHere ? (
         <p style={styles.hint}>Recording another tab. Start here to switch.</p>
       ) : null}
+      {counts ? <Counts counts={counts} /> : null}
+      {state.status !== 'recording' && counts && hasData(counts) ? (
+        <button style={styles.secondary} disabled={busy || !loaded} onClick={() => void run({ type: 'CLEAR' })}>
+          Clear
+        </button>
+      ) : null}
+      {!persistenceOk ? (
+        <p style={styles.error}>Persistence is off. Captured data may be lost if the worker restarts.</p>
+      ) : null}
       {error ? <p style={styles.error}>{error}</p> : null}
     </main>
+  );
+}
+
+function hasData(counts: BufferCounts): boolean {
+  return counts.console.unique + counts.network.unique + counts.console.evicted.entries + counts.network.evicted.entries > 0;
+}
+
+function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+function Counts({ counts }: { counts: BufferCounts }) {
+  const evicted = counts.console.evicted.entries + counts.network.evicted.entries;
+  return (
+    <div style={styles.counts}>
+      <div>
+        {plural(counts.console.unique, 'error')} ({plural(counts.console.total, 'occurrence')})
+      </div>
+      <div>
+        {plural(counts.network.unique, 'failed request')} ({plural(counts.network.total, 'occurrence')})
+      </div>
+      {evicted > 0 ? <div>{plural(evicted, 'older entry', 'older entries')} dropped</div> : null}
+    </div>
   );
 }
 
@@ -92,6 +150,8 @@ const styles = {
   main: { width: '320px', padding: '16px', fontFamily: 'system-ui, sans-serif' },
   title: { margin: 0, fontSize: '18px' },
   status: { margin: '8px 0 12px' },
+  counts: { margin: '12px 0 0', fontSize: '13px', lineHeight: 1.5 },
+  secondary: { marginTop: '8px' },
   hint: { margin: '8px 0 0', color: '#555', fontSize: '12px' },
   error: { margin: '8px 0 0', color: '#b00020', fontSize: '13px' },
 } as const;

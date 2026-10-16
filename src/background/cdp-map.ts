@@ -1,16 +1,10 @@
 import type { Protocol } from 'devtools-protocol';
-import type { RawConsoleEntry, RawNetworkEntry } from '../core/types';
+import type { PendingRequest, RawConsoleEntry, RawNetworkEntry } from '../core/types';
 
-export interface RequestRecord {
-  requestId: string;
-  method: string;
-  url: string;
-  headers: Record<string, string>;
-  postData?: string;
-  hasPostData: boolean;
-  wallTimeMs: number;
-  monotonicSeconds: number;
-}
+export type RequestRecord = PendingRequest;
+
+const MAX_FETCHABLE_BODY_BYTES = 2_000_000;
+const TEXTUAL_MIME = /^text\/|json|xml|javascript|x-www-form-urlencoded|ndjson|graphql/i;
 
 export function formatStack(callFrames: Protocol.Runtime.CallFrame[] | undefined): string | undefined {
   if (!callFrames || callFrames.length === 0) return undefined;
@@ -100,24 +94,13 @@ export function trackRequest(event: Protocol.Network.RequestWillBeSentEvent): Re
   return record;
 }
 
-function baseNetworkEntry(request: RequestRecord): RawNetworkEntry {
-  const entry: RawNetworkEntry = {
-    method: request.method,
-    url: request.url,
-    status: null,
-    requestHeaders: request.headers,
-    timestamp: request.wallTimeMs,
-  };
-  if (request.postData !== undefined) entry.requestBody = request.postData;
-  return entry;
-}
-
-export function mapResponse(
+/** Marks a request that got a 400+ response. Returns null for lower statuses. */
+export function markResponse(
+  record: PendingRequest | undefined,
   event: Protocol.Network.ResponseReceivedEvent,
-  request: RequestRecord | undefined,
-): RawNetworkEntry | null {
+): PendingRequest | null {
   if (event.response.status < 400) return null;
-  const record: RequestRecord = request ?? {
+  const base: PendingRequest = record ?? {
     requestId: event.requestId,
     method: 'GET',
     url: event.response.url,
@@ -126,23 +109,83 @@ export function mapResponse(
     wallTimeMs: Date.now(),
     monotonicSeconds: event.timestamp,
   };
-  const entry = baseNetworkEntry(record);
-  entry.status = event.response.status;
-  entry.url = event.response.url || record.url;
-  entry.durationMs = Math.max(0, Math.round((event.timestamp - record.monotonicSeconds) * 1000));
-  return entry;
+  return {
+    ...base,
+    marked: true,
+    status: event.response.status,
+    mimeType: event.response.mimeType,
+    responseUrl: event.response.url,
+    responseMonotonicSeconds: event.timestamp,
+  };
 }
 
-export function mapLoadingFailed(
-  event: Protocol.Network.LoadingFailedEvent,
-  request: RequestRecord | undefined,
-): RawNetworkEntry | null {
-  if (event.canceled === true || !request) return null;
+/** Decides whether to pull a body: text-like types only, skipping very large responses. */
+export function shouldFetchBody(mimeType: string | undefined, encodedDataLength?: number): boolean {
+  if (encodedDataLength !== undefined && encodedDataLength > MAX_FETCHABLE_BODY_BYTES) return false;
+  if (!mimeType) return true;
+  return TEXTUAL_MIME.test(mimeType);
+}
+
+function failureText(event: Protocol.Network.LoadingFailedEvent): string {
   const parts = [event.errorText];
   if (event.blockedReason) parts.push(`blocked: ${event.blockedReason}`);
   if (event.corsErrorStatus) parts.push(`cors: ${event.corsErrorStatus.corsError}`);
+  return parts.length > 1 ? `${parts[0]} (${parts.slice(1).join(', ')})` : (parts[0] ?? '');
+}
+
+/** Builds the entry for a marked request. A missing body means it was skipped, failed or unfinished. */
+export function buildHttpErrorEntry(
+  record: PendingRequest,
+  responseBody?: string,
+  requestBody?: string,
+  errorText?: string,
+): RawNetworkEntry {
+  const entry: RawNetworkEntry = {
+    method: record.method,
+    url: record.responseUrl || record.url,
+    status: record.status ?? null,
+    requestHeaders: record.headers,
+    timestamp: record.wallTimeMs,
+  };
+  const body = requestBody ?? record.postData;
+  if (body !== undefined) entry.requestBody = body;
+  if (record.postDataTruncated) entry.requestBodyTruncated = true;
+  if (responseBody !== undefined) entry.responseBody = responseBody;
+  if (errorText) entry.errorText = errorText;
+  if (record.pageUrl) entry.pageUrl = record.pageUrl;
+  if (record.responseMonotonicSeconds !== undefined) {
+    entry.durationMs = Math.max(0, Math.round((record.responseMonotonicSeconds - record.monotonicSeconds) * 1000));
+  }
+  return entry;
+}
+
+function baseNetworkEntry(request: PendingRequest): RawNetworkEntry {
+  const entry: RawNetworkEntry = {
+    method: request.method,
+    url: request.url,
+    status: null,
+    requestHeaders: request.headers,
+    timestamp: request.wallTimeMs,
+  };
+  if (request.postData !== undefined) entry.requestBody = request.postData;
+  if (request.postDataTruncated) entry.requestBodyTruncated = true;
+  if (request.pageUrl) entry.pageUrl = request.pageUrl;
+  return entry;
+}
+
+/**
+ * Maps a failed load. A request that already got a 400+ response keeps its status, including
+ * when a reload canceled it mid-body. Other canceled loads are dropped.
+ */
+export function mapLoadingFailed(
+  event: Protocol.Network.LoadingFailedEvent,
+  request: PendingRequest | undefined,
+): RawNetworkEntry | null {
+  if (!request) return null;
+  if (request.marked) return buildHttpErrorEntry(request, undefined, undefined, failureText(event));
+  if (event.canceled === true) return null;
   const entry = baseNetworkEntry(request);
-  entry.errorText = parts.length > 1 ? `${parts[0]} (${parts.slice(1).join(', ')})` : parts[0] ?? '';
+  entry.errorText = failureText(event);
   entry.durationMs = Math.max(0, Math.round((event.timestamp - request.monotonicSeconds) * 1000));
   return entry;
 }

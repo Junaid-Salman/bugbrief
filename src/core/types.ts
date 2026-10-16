@@ -9,7 +9,10 @@ export interface ConsoleEntry {
   lastSeen: number;
   variants: number; // distinct raw messages merged (1 = identical text)
   relatedRequest?: number; // 1-based index into Capsule.network, set at build time
+  pageUrl?: string; // main-frame URL when the entry was first recorded
   rawHashes?: string[]; // internal: up to 20 raw-message hashes, stripped at export
+  seq?: number; // internal: insertion order of the first occurrence
+  touched?: number; // internal: insertion counter of the latest insert or fold
 }
 
 export interface NetworkEntry {
@@ -26,18 +29,41 @@ export interface NetworkEntry {
   count: number;
   lastSeen: number;
   variants: number;
+  pageUrl?: string;
+  requestBodyTruncated?: boolean;
+  responseBodyTruncated?: boolean;
   rawHashes?: string[]; // internal: up to 20 raw hashes, stripped at export
+  seq?: number;
+  touched?: number;
 }
 
 export type RawConsoleEntry = Omit<
   ConsoleEntry,
-  'fingerprint' | 'count' | 'lastSeen' | 'variants' | 'relatedRequest' | 'rawHashes'
+  'fingerprint' | 'count' | 'lastSeen' | 'variants' | 'relatedRequest' | 'rawHashes' | 'seq' | 'touched'
 >;
 
 export type RawNetworkEntry = Omit<
   NetworkEntry,
-  'fingerprint' | 'count' | 'lastSeen' | 'variants' | 'rawHashes'
+  'fingerprint' | 'count' | 'lastSeen' | 'variants' | 'rawHashes' | 'seq' | 'touched'
 >;
+
+export interface PendingRequest {
+  requestId: string;
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  postData?: string;
+  postDataTruncated?: boolean;
+  hasPostData: boolean;
+  wallTimeMs: number;
+  monotonicSeconds: number;
+  pageUrl?: string;
+  marked?: boolean; // response with status >= 400 received
+  status?: number;
+  mimeType?: string;
+  responseUrl?: string;
+  responseMonotonicSeconds?: number;
+}
 
 export interface ElementSnapshot {
   selector: string;
