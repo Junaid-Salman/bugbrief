@@ -1,0 +1,37 @@
+{
+  "name": "bugbrief",
+  "version": "0.1.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "vitest run",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "demo": "node demo/server.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Junaid-Salman/bugbrief.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Junaid-Salman/bugbrief/issues"
+  },
+  "homepage": "https://github.com/Junaid-Salman/bugbrief#readme",
+  "description": "Package console errors, failed requests, the broken element and a screenshot into one agent-ready Markdown report.",
+  "private": "true",
+  "type": "module",
+  "dependencies": {
+    "preact": "^11.0.1"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^3.0.0",
+    "@preact/preset-vite": "^2.10.6",
+    "@types/chrome": "^0.3.5",
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
+  }
+}
