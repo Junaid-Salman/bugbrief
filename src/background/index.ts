@@ -1,5 +1,7 @@
 import type { PopupToWorker, WorkerResponse } from '../shared/messages';
 import {
+  clearBuffers,
+  getCounts,
   handleDetach,
   handleEvent,
   handleTabRemoved,
@@ -14,16 +16,20 @@ async function handleMessage(message: PopupToWorker): Promise<WorkerResponse> {
     switch (message.type) {
       case 'START_RECORDING': {
         const state = await startRecording(message.tabId);
-        return { ok: true, state, hasElement: false };
+        return { ok: true, state, hasElement: false, ...(await getCounts()) };
       }
       case 'STOP_RECORDING': {
         const state = await stopRecording();
-        return { ok: true, state, hasElement: false };
+        return { ok: true, state, hasElement: false, ...(await getCounts()) };
       }
       case 'GET_STATE': {
         await ready;
         const state = await reconcile();
-        return { ok: true, state, hasElement: false };
+        return { ok: true, state, hasElement: false, ...(await getCounts()) };
+      }
+      case 'CLEAR': {
+        const state = await clearBuffers();
+        return { ok: true, state, hasElement: false, ...(await getCounts()) };
       }
       default:
         return { ok: false, error: 'Not implemented yet.' };

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import type { PopupToWorker, RecordingState, WorkerResponse } from '../shared/messages';
+import type { BufferCounts, PopupToWorker, RecordingState, WorkerResponse } from '../shared/messages';
 import { isRestrictedUrl, RESTRICTED_MESSAGE } from '../shared/restricted';
 import { Explainer } from './Explainer';
 
@@ -21,6 +21,18 @@ export function App() {
   const [explainerSeen, setExplainerSeen] = useState<boolean | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
+  const [counts, setCounts] = useState<BufferCounts | undefined>();
+  const [persistenceOk, setPersistenceOk] = useState(true);
+
+  function apply(response: WorkerResponse): void {
+    if (response.ok) {
+      setState(response.state);
+      if (response.counts) setCounts(response.counts);
+      if (response.persistenceOk !== undefined) setPersistenceOk(response.persistenceOk);
+    } else {
+      setError(response.error);
+    }
+  }
 
   useEffect(() => {
     void (async () => {
@@ -28,18 +40,14 @@ export function App() {
       setTab(activeTab);
       const stored = await chrome.storage.local.get(EXPLAINER_KEY);
       setExplainerSeen(stored[EXPLAINER_KEY] === true);
-      const response = await send({ type: 'GET_STATE' });
-      if (response.ok) setState(response.state);
-      else setError(response.error);
+      apply(await send({ type: 'GET_STATE' }));
     })();
   }, []);
 
   async function run(message: PopupToWorker): Promise<void> {
     setBusy(true);
     setError(undefined);
-    const response = await send(message);
-    if (response.ok) setState(response.state);
-    else setError(response.error);
+    apply(await send(message));
     setBusy(false);
   }
 
@@ -83,8 +91,40 @@ export function App() {
       {state.status === 'recording' && !recordingHere ? (
         <p style={styles.hint}>Recording another tab. Start here to switch.</p>
       ) : null}
+      {counts ? <Counts counts={counts} /> : null}
+      {state.status !== 'recording' && counts && hasData(counts) ? (
+        <button style={styles.secondary} disabled={busy} onClick={() => void run({ type: 'CLEAR' })}>
+          Clear
+        </button>
+      ) : null}
+      {!persistenceOk ? (
+        <p style={styles.error}>Persistence is off. Captured data may be lost if the worker restarts.</p>
+      ) : null}
       {error ? <p style={styles.error}>{error}</p> : null}
     </main>
+  );
+}
+
+function hasData(counts: BufferCounts): boolean {
+  return counts.console.unique + counts.network.unique + counts.console.evicted.entries + counts.network.evicted.entries > 0;
+}
+
+function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+function Counts({ counts }: { counts: BufferCounts }) {
+  const evicted = counts.console.evicted.entries + counts.network.evicted.entries;
+  return (
+    <div style={styles.counts}>
+      <div>
+        {plural(counts.console.unique, 'error')} ({plural(counts.console.total, 'occurrence')})
+      </div>
+      <div>
+        {plural(counts.network.unique, 'failed request')} ({plural(counts.network.total, 'occurrence')})
+      </div>
+      {evicted > 0 ? <div>{plural(evicted, 'older entry', 'older entries')} dropped</div> : null}
+    </div>
   );
 }
 
@@ -92,6 +132,8 @@ const styles = {
   main: { width: '320px', padding: '16px', fontFamily: 'system-ui, sans-serif' },
   title: { margin: 0, fontSize: '18px' },
   status: { margin: '8px 0 12px' },
+  counts: { margin: '12px 0 0', fontSize: '13px', lineHeight: 1.5 },
+  secondary: { marginTop: '8px' },
   hint: { margin: '8px 0 0', color: '#555', fontSize: '12px' },
   error: { margin: '8px 0 0', color: '#b00020', fontSize: '13px' },
 } as const;

@@ -1,5 +1,15 @@
 import type { Capsule, ElementSnapshot } from '../core/types';
 
+export interface EvictedTally {
+  entries: number;
+  occurrences: number;
+}
+
+export interface BufferCounts {
+  console: { unique: number; total: number; evicted: EvictedTally };
+  network: { unique: number; total: number; evicted: EvictedTally };
+}
+
 export type RecordingState =
   | { status: 'idle' }
   | { status: 'recording'; tabId: number; startedAt: number }
@@ -26,5 +36,13 @@ export type PickerToWorker =
   | { type: 'PICKER_CANCELLED' };
 
 export type WorkerResponse =
-  | { ok: true; state: RecordingState; capsule?: Capsule; markdown?: string; hasElement: boolean }
+  | {
+      ok: true;
+      state: RecordingState;
+      capsule?: Capsule;
+      markdown?: string;
+      hasElement: boolean;
+      counts?: BufferCounts;
+      persistenceOk?: boolean;
+    }
   | { ok: false; error: string };

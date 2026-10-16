@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Protocol } from 'devtools-protocol';
 import {
+  buildHttpErrorEntry,
   formatStack,
   mapConsoleApi,
   mapException,
   mapLoadingFailed,
   mapLogEntry,
-  mapResponse,
+  markResponse,
+  shouldFetchBody,
   trackRequest,
 } from '../src/background/cdp-map';
 
@@ -138,14 +140,14 @@ describe('mapLogEntry', () => {
 });
 
 describe('network mapping', () => {
-  const response = (status: number): Protocol.Network.ResponseReceivedEvent =>
+  const response = (status: number, mimeType = 'application/json'): Protocol.Network.ResponseReceivedEvent =>
     ({
       requestId: 'r1',
       loaderId: 'l1',
       timestamp: 100.25,
       type: 'Fetch',
       hasExtraInfo: false,
-      response: { url: 'http://localhost:5174/api/orders', status, statusText: '', headers: {}, mimeType: 'application/json', charset: '', connectionReused: false, connectionId: 1, encodedDataLength: 0, securityState: 'neutral' },
+      response: { url: 'http://localhost:5174/api/orders', status, statusText: '', headers: {}, mimeType, charset: '', connectionReused: false, connectionId: 1, encodedDataLength: 0, securityState: 'neutral' },
     }) as Protocol.Network.ResponseReceivedEvent;
 
   it('tracks the request with wall time and post data', () => {
@@ -154,41 +156,107 @@ describe('network mapping', () => {
     expect(record.wallTimeMs).toBe(1_760_000_000_000);
     expect(record.postData).toBe('{"item":1}');
   });
-  it('keeps responses with status 400 and above, drops 399', () => {
-    const record = trackRequest(requestEvent());
-    expect(mapResponse(response(399), record)).toBeNull();
-    const kept = mapResponse(response(400), record);
-    expect(kept?.status).toBe(400);
-    expect(kept?.requestBody).toBe('{"item":1}');
-    expect(kept?.durationMs).toBe(250);
+
+  describe('markResponse', () => {
+    it('marks 400 and above, not 399', () => {
+      const record = trackRequest(requestEvent());
+      expect(markResponse(record, response(399))).toBeNull();
+      const marked = markResponse(record, response(400));
+      expect(marked?.marked).toBe(true);
+      expect(marked?.status).toBe(400);
+      expect(marked?.mimeType).toBe('application/json');
+    });
+    it('does not mark a redirect hop', () => {
+      expect(markResponse(trackRequest(requestEvent()), response(302))).toBeNull();
+    });
+    it('creates a fallback record when the pending record is gone', () => {
+      const marked = markResponse(undefined, response(500));
+      expect(marked?.method).toBe('GET');
+      expect(marked?.url).toBe('http://localhost:5174/api/orders');
+      expect(marked?.marked).toBe(true);
+    });
   });
-  it('maps a failed load with the error text', () => {
-    const record = trackRequest(requestEvent());
-    const entry = mapLoadingFailed(
-      { requestId: 'r1', timestamp: 100.5, type: 'Fetch', errorText: 'net::ERR_CONNECTION_REFUSED' },
-      record,
-    );
-    expect(entry?.status).toBeNull();
-    expect(entry?.errorText).toBe('net::ERR_CONNECTION_REFUSED');
+
+  describe('buildHttpErrorEntry', () => {
+    it('builds an entry with status, bodies and duration', () => {
+      const marked = markResponse(trackRequest(requestEvent()), response(500));
+      const entry = buildHttpErrorEntry(marked!, '{"error":"x"}');
+      expect(entry.status).toBe(500);
+      expect(entry.responseBody).toBe('{"error":"x"}');
+      expect(entry.requestBody).toBe('{"item":1}');
+      expect(entry.durationMs).toBe(250);
+      expect(entry.timestamp).toBe(1_760_000_000_000);
+    });
+    it('omits the response body when there is none', () => {
+      const marked = markResponse(trackRequest(requestEvent()), response(500));
+      expect('responseBody' in buildHttpErrorEntry(marked!, undefined)).toBe(false);
+    });
+    it('prefers an explicitly fetched request body and carries the pageUrl and truncation flag', () => {
+      const record = { ...markResponse(trackRequest(requestEvent({ postData: undefined })), response(500))!, pageUrl: 'http://x/', postDataTruncated: true };
+      const entry = buildHttpErrorEntry(record, undefined, 'fetched body');
+      expect(entry.requestBody).toBe('fetched body');
+      expect(entry.pageUrl).toBe('http://x/');
+      expect(entry.requestBodyTruncated).toBe(true);
+    });
   });
-  it('appends blocked and CORS reasons', () => {
-    const record = trackRequest(requestEvent());
-    const entry = mapLoadingFailed(
-      {
-        requestId: 'r1',
-        timestamp: 100.5,
-        type: 'Fetch',
-        errorText: 'net::ERR_FAILED',
-        blockedReason: 'inspector',
-        corsErrorStatus: { corsError: 'MissingAllowOriginHeader', failedParameter: '' },
+
+  describe('shouldFetchBody', () => {
+    it.each(['application/json', 'text/html', 'text/plain; charset=utf-8', 'application/problem+json', 'application/x-ndjson', 'application/xml', 'application/javascript', 'application/x-www-form-urlencoded', 'application/graphql-response+json'])(
+      'fetches %s',
+      (mime) => {
+        expect(shouldFetchBody(mime)).toBe(true);
       },
-      record,
     );
-    expect(entry?.errorText).toBe('net::ERR_FAILED (blocked: inspector, cors: MissingAllowOriginHeader)');
+    it.each(['image/png', 'application/octet-stream', 'application/pdf', 'video/mp4', 'font/woff2', 'application/zip'])(
+      'skips %s',
+      (mime) => {
+        expect(shouldFetchBody(mime)).toBe(false);
+      },
+    );
+    it('fetches when the type is empty or missing', () => {
+      expect(shouldFetchBody('')).toBe(true);
+      expect(shouldFetchBody(undefined)).toBe(true);
+    });
+    it('skips bodies over 2 MB', () => {
+      expect(shouldFetchBody('application/json', 3_000_000)).toBe(false);
+      expect(shouldFetchBody('application/json', 1_000)).toBe(true);
+    });
   });
-  it('drops canceled loads and loads with no tracked request', () => {
-    const record = trackRequest(requestEvent());
-    expect(mapLoadingFailed({ requestId: 'r1', timestamp: 1, type: 'Fetch', errorText: 'net::ERR_ABORTED', canceled: true }, record)).toBeNull();
-    expect(mapLoadingFailed({ requestId: 'r2', timestamp: 1, type: 'Fetch', errorText: 'net::ERR_FAILED' }, undefined)).toBeNull();
+
+  describe('mapLoadingFailed', () => {
+    it('maps a failed load with the error text', () => {
+      const entry = mapLoadingFailed(
+        { requestId: 'r1', timestamp: 100.5, type: 'Fetch', errorText: 'net::ERR_CONNECTION_REFUSED' },
+        trackRequest(requestEvent()),
+      );
+      expect(entry?.status).toBeNull();
+      expect(entry?.errorText).toBe('net::ERR_CONNECTION_REFUSED');
+    });
+    it('appends blocked and CORS reasons', () => {
+      const entry = mapLoadingFailed(
+        {
+          requestId: 'r1',
+          timestamp: 100.5,
+          type: 'Fetch',
+          errorText: 'net::ERR_FAILED',
+          blockedReason: 'inspector',
+          corsErrorStatus: { corsError: 'MissingAllowOriginHeader', failedParameter: '' },
+        },
+        trackRequest(requestEvent()),
+      );
+      expect(entry?.errorText).toBe('net::ERR_FAILED (blocked: inspector, cors: MissingAllowOriginHeader)');
+    });
+    it('drops canceled loads and loads with no tracked request', () => {
+      const record = trackRequest(requestEvent());
+      expect(mapLoadingFailed({ requestId: 'r1', timestamp: 1, type: 'Fetch', errorText: 'net::ERR_ABORTED', canceled: true }, record)).toBeNull();
+      expect(mapLoadingFailed({ requestId: 'r2', timestamp: 1, type: 'Fetch', errorText: 'net::ERR_FAILED' }, undefined)).toBeNull();
+    });
+    it('keeps the status of a marked request even when a reload canceled it', () => {
+      const marked = markResponse(trackRequest(requestEvent()), response(500))!;
+      const entry = mapLoadingFailed({ requestId: 'r1', timestamp: 101, type: 'Fetch', errorText: 'net::ERR_ABORTED', canceled: true }, marked);
+      expect(entry?.status).toBe(500);
+      expect(entry?.errorText).toBe('net::ERR_ABORTED');
+      expect(entry && 'responseBody' in entry).toBe(false);
+    });
   });
 });
