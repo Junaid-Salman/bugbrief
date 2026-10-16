@@ -30,6 +30,7 @@
     "@preact/preset-vite": "^2.10.6",
     "@types/chrome": "^0.3.5",
     "@types/node": "^22.20.5",
+    "devtools-protocol": "^0.0.1720385",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.5"

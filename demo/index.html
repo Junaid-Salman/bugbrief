@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BugBrief Demo</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 24px; max-width: 640px; }
+      button { margin: 4px 4px 4px 0; padding: 6px 10px; }
+      h2 { margin: 20px 0 6px; font-size: 15px; }
+    </style>
+  </head>
+  <body>
+    <h1>BugBrief Demo</h1>
+    <p>Start recording in the BugBrief popup, then click the buttons below.</p>
+
+    <h2>Console</h2>
+    <button id="throw">Throw TypeError</button>
+    <button id="error">console.error</button>
+    <button id="warn">console.warn</button>
+
+    <h2>Network</h2>
+    <button id="post500">POST /api/orders (500)</button>
+    <button id="get404">GET /api/missing (404)</button>
+    <button id="refused">Fetch unreachable port</button>
+
+    <h2>Consolidation</h2>
+    <button id="same5">Fire the same error 5×</button>
+    <button id="lookalike">Look-alike pair (index 0 and 1)</button>
+    <button id="orders">POST /api/orders/123 and /456</button>
+
+    <script>
+      function boom() {
+        const items = undefined;
+        return items.map((item) => item);
+      }
+      function readIndexZero() {
+        let list;
+        return list[0];
+      }
+      function readIndexOne() {
+        let list;
+        return list[1];
+      }
+      function uncaught(fn) {
+        setTimeout(fn, 0);
+      }
+      function post(path) {
+        return fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ item: 'widget' }),
+        });
+      }
+
+      document.getElementById('throw').onclick = () => uncaught(boom);
+      document.getElementById('error').onclick = () => console.error('Demo console.error', { code: 42 });
+      document.getElementById('warn').onclick = () => console.warn('Demo console.warn');
+      document.getElementById('post500').onclick = () => post('/api/orders');
+      document.getElementById('get404').onclick = () => fetch('/api/missing');
+      document.getElementById('refused').onclick = () =>
+        fetch('http://localhost:9/unreachable').catch((error) => console.error('Request failed:', error.message));
+      document.getElementById('same5').onclick = () => {
+        for (let i = 0; i < 5; i++) uncaught(boom);
+      };
+      document.getElementById('lookalike').onclick = () => {
+        uncaught(readIndexZero);
+        uncaught(readIndexOne);
+      };
+      document.getElementById('orders').onclick = () => {
+        post('/api/orders/123');
+        post('/api/orders/456');
+      };
+    </script>
+  </body>
+</html>
