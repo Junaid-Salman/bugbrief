@@ -9,6 +9,10 @@ function send(message: PopupToWorker): Promise<WorkerResponse> {
   return chrome.runtime.sendMessage(message) as Promise<WorkerResponse>;
 }
 
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 const label: Record<RecordingState['status'], string> = {
   idle: 'Idle',
   recording: 'Recording',
@@ -23,6 +27,8 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [counts, setCounts] = useState<BufferCounts | undefined>();
   const [persistenceOk, setPersistenceOk] = useState(true);
+  // False until the worker answers the first GET_STATE, so a slow answer never shows a false Idle.
+  const [loaded, setLoaded] = useState(false);
 
   function apply(response: WorkerResponse): void {
     if (response.ok) {
@@ -36,19 +42,31 @@ export function App() {
 
   useEffect(() => {
     void (async () => {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      setTab(activeTab);
-      const stored = await chrome.storage.local.get(EXPLAINER_KEY);
-      setExplainerSeen(stored[EXPLAINER_KEY] === true);
-      apply(await send({ type: 'GET_STATE' }));
+      try {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        setTab(activeTab);
+        const stored = await chrome.storage.local.get(EXPLAINER_KEY);
+        setExplainerSeen(stored[EXPLAINER_KEY] === true);
+        apply(await send({ type: 'GET_STATE' }));
+      } catch (caught) {
+        setExplainerSeen((seen) => seen ?? true);
+        setError(describe(caught));
+      } finally {
+        setLoaded(true);
+      }
     })();
   }, []);
 
   async function run(message: PopupToWorker): Promise<void> {
     setBusy(true);
     setError(undefined);
-    apply(await send(message));
-    setBusy(false);
+    try {
+      apply(await send(message));
+    } catch (caught) {
+      setError(describe(caught));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function dismissExplainer(): Promise<void> {
@@ -73,16 +91,16 @@ export function App() {
     <main style={styles.main}>
       <h1 style={styles.title}>BugBrief</h1>
       <p style={styles.status}>
-        Status: <strong>{label[state.status]}</strong>
+        Status: <strong>{loaded ? label[state.status] : 'Checking…'}</strong>
       </p>
       {restricted ? <p style={styles.error}>{RESTRICTED_MESSAGE}</p> : null}
       {state.status === 'recording' ? (
-        <button disabled={busy} onClick={() => void run({ type: 'STOP_RECORDING' })}>
+        <button disabled={busy || !loaded} onClick={() => void run({ type: 'STOP_RECORDING' })}>
           Stop recording
         </button>
       ) : (
         <button
-          disabled={busy || restricted || tab?.id === undefined}
+          disabled={busy || !loaded || restricted || tab?.id === undefined}
           onClick={() => tab?.id !== undefined && void run({ type: 'START_RECORDING', tabId: tab.id })}
         >
           Start recording
@@ -93,7 +111,7 @@ export function App() {
       ) : null}
       {counts ? <Counts counts={counts} /> : null}
       {state.status !== 'recording' && counts && hasData(counts) ? (
-        <button style={styles.secondary} disabled={busy} onClick={() => void run({ type: 'CLEAR' })}>
+        <button style={styles.secondary} disabled={busy || !loaded} onClick={() => void run({ type: 'CLEAR' })}>
           Clear
         </button>
       ) : null}

@@ -25,11 +25,16 @@ import {
 } from './cdp-map';
 import { drain, withTimeout } from './drain';
 import { getCurrent, reconcile, setState } from './state';
+import {
+  DETACH_TIMEOUT_MS,
+  DRAIN_TIMEOUT_MS,
+  FETCH_TIMEOUT_MS,
+  FINISH_BUDGET_MS,
+  METADATA_TIMEOUT_MS,
+} from './timeouts';
 
 const PROTOCOL_VERSIONS = ['1.3', '0.1'] as const;
 const LOG_PREFIX = '[BugBrief]';
-const FETCH_TIMEOUT_MS = 3000;
-const DRAIN_TIMEOUT_MS = 2000;
 
 export type FinishReason = 'stop' | 'canceled_by_user' | 'target_closed' | 'tab_removed';
 
@@ -202,47 +207,58 @@ function safePath(url: string): string {
   }
 }
 
+/** Pre-flush phase of Stop. Each step is time-limited, and the caller caps the whole thing. */
+async function stopSequence(tabId: number): Promise<void> {
+  const drained = await drain(inFlight, DRAIN_TIMEOUT_MS);
+  if (!drained) console.warn(`${LOG_PREFIX} drain timed out`, { inFlight: inFlight.size });
+  await withTimeout(logPageMetadata(tabId), METADATA_TIMEOUT_MS).catch(() => undefined);
+  await withTimeout(chrome.debugger.detach({ tabId }), DETACH_TIMEOUT_MS).catch(() => undefined);
+}
+
 /**
  * The only place a session ends. Idempotent: Stop, banner Cancel and tab close can overlap and
  * share one run. Stop drains in-flight body fetches first. Cancel and tab close skip the drain
- * because the debugger is already gone.
+ * because the debugger is already gone. Nothing before the flush can block for longer than
+ * FINISH_BUDGET_MS, so a frozen tab can never keep a session from reaching "stopped".
  */
 export function finishSession(reason: FinishReason): Promise<RecordingState> {
   if (finishing) return finishing;
   const state = getCurrent();
   if (state.status !== 'recording') return Promise.resolve(state);
 
-  finishing = (async () => {
-    try {
-      if (reason === 'stop') {
-        draining = true;
-        await drain(inFlight, DRAIN_TIMEOUT_MS);
-        await logPageMetadata(state.tabId);
-        await chrome.debugger.detach({ tabId: state.tabId }).catch(() => undefined);
-      }
-      buffer.mutate((current) => {
-        for (const record of markedPending(current)) {
-          if (fetching.has(record.requestId)) continue;
-          insertNetwork(current, buildHttpErrorEntry(record));
-        }
-        current.pending = [];
+  const run = async (): Promise<RecordingState> => {
+    if (reason === 'stop') {
+      draining = true;
+      await withTimeout(stopSequence(state.tabId), FINISH_BUDGET_MS).catch((error: unknown) => {
+        console.warn(`${LOG_PREFIX} stop sequence did not finish`, errorMessage(error));
       });
-      await buffer.flush();
-      const stopped: RecordingState = {
-        status: 'stopped',
-        tabId: state.tabId,
-        startedAt: state.startedAt,
-        stoppedAt: Date.now(),
-      };
-      await setState(stopped);
-      console.log(`${LOG_PREFIX} recording stopped`, { tabId: state.tabId, reason });
-      await logSummary(reason);
-      return stopped;
-    } finally {
-      draining = false;
-      finishing = undefined;
+      // Safety net if a step above timed out before the detach ran. Detaching twice is harmless.
+      void chrome.debugger.detach({ tabId: state.tabId }).catch(() => undefined);
     }
-  })();
+    buffer.mutate((current) => {
+      for (const record of markedPending(current)) {
+        if (fetching.has(record.requestId)) continue;
+        insertNetwork(current, buildHttpErrorEntry(record));
+      }
+      current.pending = [];
+    });
+    await buffer.flush();
+    const stopped: RecordingState = {
+      status: 'stopped',
+      tabId: state.tabId,
+      startedAt: state.startedAt,
+      stoppedAt: Date.now(),
+    };
+    await setState(stopped);
+    console.log(`${LOG_PREFIX} recording stopped`, { tabId: state.tabId, reason });
+    await logSummary(reason);
+    return stopped;
+  };
+
+  finishing = run().finally(() => {
+    draining = false;
+    finishing = undefined;
+  });
   return finishing;
 }
 
