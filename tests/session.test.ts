@@ -6,6 +6,7 @@ interface Behavior {
   hangEvaluate: boolean;
   hangDetach: boolean;
   hangBody: boolean;
+  hangMethods: string[];
   bodyGate?: Promise<void>;
   frameTreeGate?: Promise<void>;
   frameUrl: string;
@@ -25,6 +26,7 @@ function installChrome() {
     hangEvaluate: false,
     hangDetach: false,
     hangBody: false,
+    hangMethods: [],
     frameUrl: 'http://localhost:5174/',
     failBufferSet: 0,
     failStateSet: 0,
@@ -76,6 +78,7 @@ function installChrome() {
       },
       async sendCommand(_target: unknown, method: string, params?: { requestId?: string }) {
         sent.push({ method, params });
+        if (behavior.hangMethods.includes(method)) await new Promise(() => undefined);
         if (method === 'Page.getFrameTree') {
           if (behavior.frameTreeGate) await behavior.frameTreeGate;
           return { frameTree: { frame: { id: 'MAIN', url: behavior.frameUrl } } };
@@ -623,6 +626,48 @@ describe('debugger session with a mocked chrome API', () => {
       await session.stopRecording();
       expect(storedConsole(env)).toHaveLength(1);
       expect(storedConsole(env)[0]?.pageUrl).toBe('http://localhost:5174/');
+    });
+
+    describe('Start on a frozen tab (R2-M1)', () => {
+      beforeEach(() => vi.useFakeTimers());
+      afterEach(() => vi.useRealTimers());
+
+      it('lets Stop run after Page.getFrameTree hangs, and keeps the tab URL', async () => {
+        const { session, state, env } = await boot();
+        env.behavior.hangMethods = ['Page.getFrameTree'];
+        const starting = session.startRecording(7);
+        const stopping = session.stopRecording();
+        await vi.advanceTimersByTimeAsync(3100);
+        await expect(starting).resolves.toMatchObject({ status: 'recording' });
+        await vi.advanceTimersByTimeAsync(100);
+        await expect(stopping).resolves.toMatchObject({ status: 'stopped' });
+        expect(state.getCurrent().status).toBe('stopped');
+      });
+
+      it('fails Start, detaches and returns to idle when an enable call hangs', async () => {
+        const { session, state, env } = await boot();
+        env.behavior.hangMethods = ['Page.enable'];
+        const starting = session.startRecording(7);
+        const failure = expect(starting).rejects.toThrow(/Could not enable debugging domains.*Page\.enable/);
+        await vi.advanceTimersByTimeAsync(3100);
+        await failure;
+        expect(env.order).toContain('detach:7');
+        expect(state.getCurrent().status).toBe('idle');
+      });
+
+      it('can start again after a timed-out Start, and Clear waits behind it', async () => {
+        const { session, state, env } = await boot();
+        env.behavior.hangMethods = ['Runtime.enable'];
+        const first = session.startRecording(7);
+        const firstFailure = expect(first).rejects.toThrow('timed out');
+        const clearing = session.clearBuffers();
+        await vi.advanceTimersByTimeAsync(3100);
+        await firstFailure;
+        await expect(clearing).resolves.toMatchObject({ status: 'idle' });
+        env.behavior.hangMethods = [];
+        await expect(session.startRecording(7)).resolves.toMatchObject({ status: 'recording' });
+        expect(state.getCurrent().status).toBe('recording');
+      });
     });
 
     it('runs overlapping starts one after the other', async () => {

@@ -23,7 +23,7 @@ import {
   shouldFetchBody,
   trackRequest,
 } from './cdp-map';
-import { drain, withTimeout } from './drain';
+import { drain, TimeoutError, withTimeout } from './drain';
 import { debugEnabled, log } from './log';
 import { getCurrent, reconcile, setSessionLostHandler, setState } from './state';
 import {
@@ -32,6 +32,7 @@ import {
   FETCH_TIMEOUT_MS,
   FINISH_BUDGET_MS,
   METADATA_TIMEOUT_MS,
+  START_STEP_TIMEOUT_MS,
 } from './timeouts';
 
 const PROTOCOL_VERSIONS = ['1.3', '0.1'] as const;
@@ -108,12 +109,18 @@ function wrapAttachError(error: unknown): Error {
   return new Error(message);
 }
 
+function sendBounded(tabId: number, method: string, params?: Record<string, unknown>): Promise<unknown> {
+  return withTimeout(chrome.debugger.sendCommand({ tabId }, method, params), START_STEP_TIMEOUT_MS).catch((error: unknown) => {
+    if (error instanceof TimeoutError) throw new Error(`${method} timed out`);
+    throw error;
+  });
+}
+
 async function enableDomains(tabId: number): Promise<void> {
-  const target: chrome.debugger.Debuggee = { tabId };
-  await chrome.debugger.sendCommand(target, 'Runtime.enable');
-  await chrome.debugger.sendCommand(target, 'Log.enable');
-  await chrome.debugger.sendCommand(target, 'Page.enable');
-  await chrome.debugger.sendCommand(target, 'Network.enable', {
+  await sendBounded(tabId, 'Runtime.enable');
+  await sendBounded(tabId, 'Log.enable');
+  await sendBounded(tabId, 'Page.enable');
+  await sendBounded(tabId, 'Network.enable', {
     maxResourceBufferSize: 5_000_000,
     maxTotalBufferSize: 25_000_000,
   });
@@ -123,7 +130,7 @@ async function seedMainFrame(tabId: number, fallbackUrl: string | undefined): Pr
   let frameId: string | undefined;
   let url = fallbackUrl;
   try {
-    const result = (await chrome.debugger.sendCommand({ tabId }, 'Page.getFrameTree')) as Protocol.Page.GetFrameTreeResponse;
+    const result = (await sendBounded(tabId, 'Page.getFrameTree')) as Protocol.Page.GetFrameTreeResponse;
     frameId = result.frameTree.frame.id;
     url = result.frameTree.frame.url;
   } catch (error) {
