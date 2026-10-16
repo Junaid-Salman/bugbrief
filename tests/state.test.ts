@@ -204,4 +204,42 @@ describe('reconcile', () => {
     const { reconcile } = await load();
     expect((await reconcile()).status).toBe('idle');
   });
+
+  describe('session lost handler', () => {
+    it('is called once, after the state is stopped, when the session is dead', async () => {
+      install({ stored: recording, targets: [{ tabId: 7, attached: false }] });
+      const { reconcile, setSessionLostHandler, getCurrent } = await load();
+      const seen: string[] = [];
+      setSessionLostHandler(async () => {
+        seen.push(getCurrent().status);
+      });
+      await reconcile();
+      expect(seen).toEqual(['stopped']);
+    });
+
+    it('is not called when the session is alive', async () => {
+      install({ stored: recording });
+      const { reconcile, setSessionLostHandler } = await load();
+      const handler = vi.fn(async () => undefined);
+      setSessionLostHandler(handler);
+      await reconcile();
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('is not called when newer state replaced the dead result', async () => {
+      let open!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      install({ stored: recording, targets: [{ tabId: 7, attached: false }], getGate: gate });
+      const { reconcile, setSessionLostHandler, setState } = await load();
+      const handler = vi.fn(async () => undefined);
+      setSessionLostHandler(handler);
+      const pending = reconcile();
+      await setState({ status: 'stopped', tabId: 7, startedAt: 1, stoppedAt: 2 });
+      open();
+      await pending;
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
 });

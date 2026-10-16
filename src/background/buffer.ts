@@ -70,22 +70,33 @@ export function createBuffer(storage: SessionStorageLike, options: BufferOptions
     return payload;
   }
 
+  /**
+   * Write ladder. A failure may be transient, so the same payload is retried first and memory is
+   * left alone. If that fails too, a trimmed clone is tried (size is the likely cause), and memory
+   * is trimmed only if that succeeds. If everything fails, persistence is reported as off.
+   */
   async function writeNow(forGeneration: number): Promise<void> {
     if (forGeneration !== generation || !dirty) return;
     dirty = false;
-    try {
-      await storage.set(buildPayload());
-      persistenceOk = true;
-    } catch (firstError) {
-      log('write failed, retrying with trimmed bodies', firstError);
+    const payload = buildPayload();
+    for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        trimBodies(state);
-        await storage.set(serialize(state, false));
+        await storage.set(payload);
         persistenceOk = true;
-      } catch (secondError) {
-        persistenceOk = false;
-        log('write failed again, persistence is off', secondError);
+        return;
+      } catch (error) {
+        log(`write failed (attempt ${attempt})`, error);
       }
+    }
+    try {
+      const trimmed = structuredClone(state);
+      trimBodies(trimmed);
+      await storage.set(serialize(trimmed, false));
+      trimBodies(state);
+      persistenceOk = true;
+    } catch (error) {
+      persistenceOk = false;
+      log('write failed again, persistence is off', error);
     }
   }
 

@@ -9,6 +9,7 @@ import {
   startRecording,
   stopRecording,
 } from './debugger-session';
+import { log } from './log';
 import { reconcile } from './state';
 
 async function handleMessage(message: PopupToWorker): Promise<WorkerResponse> {
@@ -58,5 +59,5 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[BugBrief] installed');
+  log.info('installed');
 });

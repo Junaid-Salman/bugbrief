@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBuffer, type SessionStorageLike } from '../src/background/buffer';
-import { KEYS, insertConsole } from '../src/core/buffer-model';
-import type { RawConsoleEntry } from '../src/core/types';
+import { KEYS, insertConsole, insertNetwork } from '../src/core/buffer-model';
+import type { RawConsoleEntry, RawNetworkEntry } from '../src/core/types';
 
 const raw = (n: number): RawConsoleEntry => ({
   level: 'error',
@@ -167,27 +167,61 @@ describe('createBuffer', () => {
     expect(buffer.isCurrent(token)).toBe(false);
   });
 
-  it('retries once after a quota failure and stays healthy', async () => {
-    const fake = fakeStorage();
-    const buffer = createBuffer(fake.storage);
-    fake.failNext(1);
-    buffer.mutate((state) => insertConsole(state, raw(1)));
-    await buffer.flush();
-    expect(fake.calls.set).toBe(2);
-    expect(buffer.persistenceOk()).toBe(true);
-    expect(fake.data.has(KEYS.console)).toBe(true);
-  });
+  describe('write failures', () => {
+    const bigNetwork = (): RawNetworkEntry => ({
+      method: 'GET',
+      url: 'http://x/api',
+      status: 500,
+      requestHeaders: {},
+      responseBody: 'b'.repeat(10_000),
+      timestamp: 1,
+    });
 
-  it('turns persistence off after a second failure and recovers on the next success', async () => {
-    const fake = fakeStorage();
-    const buffer = createBuffer(fake.storage);
-    fake.failNext(2);
-    buffer.mutate((state) => insertConsole(state, raw(1)));
-    await buffer.flush();
-    expect(buffer.persistenceOk()).toBe(false);
-    buffer.mutate((state) => insertConsole(state, raw(2)));
-    await buffer.flush();
-    expect(buffer.persistenceOk()).toBe(true);
+    it('retries the same payload after one failure and leaves memory untouched', async () => {
+      const fake = fakeStorage();
+      const buffer = createBuffer(fake.storage);
+      buffer.mutate((state) => insertNetwork(state, bigNetwork()));
+      fake.failNext(1);
+      await buffer.flush();
+      expect(fake.calls.set).toBe(2);
+      expect(buffer.persistenceOk()).toBe(true);
+      expect(buffer.getState().network[0]?.responseBody).toHaveLength(10_000);
+      expect((fake.data.get(KEYS.network) as Array<{ responseBody: string }>)[0]?.responseBody).toHaveLength(10_000);
+    });
+
+    it('trims memory only when the full payload fails twice and the trimmed one succeeds', async () => {
+      const fake = fakeStorage();
+      const buffer = createBuffer(fake.storage);
+      buffer.mutate((state) => insertNetwork(state, bigNetwork()));
+      fake.failNext(2);
+      await buffer.flush();
+      expect(fake.calls.set).toBe(3);
+      expect(buffer.persistenceOk()).toBe(true);
+      expect(buffer.getState().network[0]?.responseBody).toHaveLength(4_096);
+      expect((fake.data.get(KEYS.network) as Array<{ responseBody: string }>)[0]?.responseBody).toHaveLength(4_096);
+    });
+
+    it('turns persistence off after three failures and leaves memory untouched', async () => {
+      const fake = fakeStorage();
+      const buffer = createBuffer(fake.storage);
+      buffer.mutate((state) => insertNetwork(state, bigNetwork()));
+      fake.failNext(3);
+      await buffer.flush();
+      expect(buffer.persistenceOk()).toBe(false);
+      expect(buffer.getState().network[0]?.responseBody).toHaveLength(10_000);
+    });
+
+    it('recovers on the next successful write', async () => {
+      const fake = fakeStorage();
+      const buffer = createBuffer(fake.storage);
+      buffer.mutate((state) => insertConsole(state, raw(1)));
+      fake.failNext(3);
+      await buffer.flush();
+      expect(buffer.persistenceOk()).toBe(false);
+      buffer.mutate((state) => insertConsole(state, raw(2)));
+      await buffer.flush();
+      expect(buffer.persistenceOk()).toBe(true);
+    });
   });
 
   it('does not throw from timer callbacks when storage fails', async () => {

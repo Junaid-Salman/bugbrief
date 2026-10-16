@@ -21,6 +21,16 @@ export async function setState(state: RecordingState): Promise<void> {
   await chrome.storage.session.set({ [STATE_KEY]: state });
 }
 
+let sessionLostHandler: (() => Promise<void>) | undefined;
+
+/**
+ * Registers the function reconcile calls, once, right after it marks a recording as stopped
+ * because the debugger session is gone. The session code uses it to finalize pending requests.
+ */
+export function setSessionLostHandler(handler: () => Promise<void>): void {
+  sessionLostHandler = handler;
+}
+
 export type Liveness = 'alive' | 'dead';
 
 /**
@@ -68,6 +78,7 @@ export async function reconcile(): Promise<RecordingState> {
         stoppedAt: Date.now(),
       };
       await setState(stopped);
+      await sessionLostHandler?.();
       return stopped;
     }
   }

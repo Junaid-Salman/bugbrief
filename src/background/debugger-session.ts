@@ -24,7 +24,8 @@ import {
   trackRequest,
 } from './cdp-map';
 import { drain, withTimeout } from './drain';
-import { getCurrent, reconcile, setState } from './state';
+import { debugEnabled, log } from './log';
+import { getCurrent, reconcile, setSessionLostHandler, setState } from './state';
 import {
   DETACH_TIMEOUT_MS,
   DRAIN_TIMEOUT_MS,
@@ -34,18 +35,34 @@ import {
 } from './timeouts';
 
 const PROTOCOL_VERSIONS = ['1.3', '0.1'] as const;
-const LOG_PREFIX = '[BugBrief]';
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 export type FinishReason = 'stop' | 'canceled_by_user' | 'target_closed' | 'tab_removed';
 
 const buffer = createBuffer(chrome.storage.session as unknown as SessionStorageLike, {
-  log: (message, detail) => console.warn(`${LOG_PREFIX} buffer: ${message}`, detail),
+  log: (message, detail) => log.warn(`buffer: ${message}`, { error: errorMessage(detail) }),
 });
 
 const inFlight = new Set<Promise<unknown>>();
-const fetching = new Set<string>();
+// One token per body fetch that is running. Finishing a session marks it abandoned, so a fetch
+// that outlives the drain can no longer insert an entry after the session has stopped.
+interface FetchToken {
+  abandoned: boolean;
+}
+const fetching = new Map<string, FetchToken>();
 let draining = false;
 let finishing: Promise<RecordingState> | undefined;
+
+// A session found dead (for example after a worker restart) still owns marked pending requests.
+// Insert them without a body and save, exactly as a normal finish would.
+setSessionLostHandler(async () => {
+  insertUnfinishedMarked();
+  await buffer.flush();
+  log.info('session lost, pending requests finalized');
+});
 
 // Resolves once buffers are loaded and the stored state is verified, so events that wake the worker are not dropped.
 export const ready: Promise<RecordingState> = (async () => {
@@ -57,9 +74,6 @@ export const ready: Promise<RecordingState> = (async () => {
   }
 })();
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 async function attachWithFallback(tabId: number): Promise<string> {
   const target: chrome.debugger.Debuggee = { tabId };
@@ -113,7 +127,7 @@ async function seedMainFrame(tabId: number, fallbackUrl: string | undefined): Pr
     frameId = result.frameTree.frame.id;
     url = result.frameTree.frame.url;
   } catch (error) {
-    console.warn(`${LOG_PREFIX} could not read the frame tree`, errorMessage(error));
+    log.warn('could not read the frame tree', { error: errorMessage(error) });
   }
   buffer.mutate((state) => {
     if (frameId) state.mainFrameId = frameId;
@@ -121,7 +135,17 @@ async function seedMainFrame(tabId: number, fallbackUrl: string | undefined): Pr
   });
 }
 
-export async function startRecording(tabId: number): Promise<RecordingState> {
+// Start, Stop and Clear run one at a time. finishSession is not locked (it is already idempotent),
+// so Cancel and tab-close events never wait here and a locked call can safely finish a session.
+let lock: Promise<unknown> = Promise.resolve();
+
+function runExclusive<T>(task: () => Promise<T>): Promise<T> {
+  const run = lock.then(task, task);
+  lock = run.catch(() => undefined);
+  return run;
+}
+
+async function startRecordingLocked(tabId: number): Promise<RecordingState> {
   await ready;
   const state = await reconcile();
   if (state.status === 'recording') {
@@ -140,14 +164,27 @@ export async function startRecording(tabId: number): Promise<RecordingState> {
     throw new Error(`Could not enable debugging domains: ${errorMessage(error)}`);
   }
 
-  await buffer.reset();
-  inFlight.clear();
-  fetching.clear();
-  await seedMainFrame(tabId, tab.url);
-  const recording: RecordingState = { status: 'recording', tabId, startedAt: Date.now() };
-  await setState(recording);
-  console.log(`${LOG_PREFIX} recording started`, { tabId, protocolVersion: version });
-  return recording;
+  try {
+    inFlight.clear();
+    fetching.clear();
+    // Reset the buffer and set the recording state in the same tick, so no event can fall in a gap.
+    const resetting = buffer.reset();
+    const recording: RecordingState = { status: 'recording', tabId, startedAt: Date.now() };
+    const setting = setState(recording);
+    if (tab.url) buffer.mutate((current) => void (current.pageUrl = capText(tab.url as string, FIELD.pageUrl).text));
+    await Promise.all([resetting, setting]);
+    await seedMainFrame(tabId, tab.url);
+    log.info('recording started', { tabId, protocolVersion: version });
+    return recording;
+  } catch (error) {
+    await chrome.debugger.detach({ tabId }).catch(() => undefined);
+    await setState({ status: 'idle' }).catch(() => undefined);
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+}
+
+export function startRecording(tabId: number): Promise<RecordingState> {
+  return runExclusive(() => startRecordingLocked(tabId));
 }
 
 const PAGE_METADATA_EXPRESSION = `JSON.stringify({
@@ -157,15 +194,15 @@ const PAGE_METADATA_EXPRESSION = `JSON.stringify({
   viewport: { width: innerWidth, height: innerHeight }
 })`;
 
-async function logPageMetadata(tabId: number): Promise<void> {
+async function readPageMetadata(tabId: number): Promise<void> {
   try {
     const result = (await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
       expression: PAGE_METADATA_EXPRESSION,
       returnByValue: true,
     })) as Protocol.Runtime.EvaluateResponse;
-    console.log(`${LOG_PREFIX} page metadata`, result.result.value);
+    log.debug('page metadata', { value: result.result.value });
   } catch (error) {
-    console.warn(`${LOG_PREFIX} could not read page metadata`, errorMessage(error));
+    log.warn('could not read page metadata', { error: errorMessage(error) });
   }
 }
 
@@ -180,7 +217,7 @@ async function logSummary(reason: FinishReason): Promise<void> {
   } catch {
     bytes = undefined;
   }
-  console.log(`${LOG_PREFIX} buffer summary`, {
+  log.debug('buffer summary', {
     reason,
     counts: countsOf(current),
     firstConsole: consoleTitles.slice(0, 5),
@@ -207,11 +244,27 @@ function safePath(url: string): string {
   }
 }
 
+/**
+ * Inserts every marked 400+ response that has no entry yet, without a body, and clears pending.
+ * A body fetch still running for one of them is abandoned so it cannot insert a second entry.
+ */
+function insertUnfinishedMarked(): void {
+  buffer.mutate((current) => {
+    for (const record of markedPending(current)) {
+      const token = fetching.get(record.requestId);
+      if (token) token.abandoned = true;
+      insertNetwork(current, buildHttpErrorEntry(record));
+    }
+    current.pending = [];
+  });
+}
+
 /** Pre-flush phase of Stop. Each step is time-limited, and the caller caps the whole thing. */
 async function stopSequence(tabId: number): Promise<void> {
   const drained = await drain(inFlight, DRAIN_TIMEOUT_MS);
-  if (!drained) console.warn(`${LOG_PREFIX} drain timed out`, { inFlight: inFlight.size });
-  await withTimeout(logPageMetadata(tabId), METADATA_TIMEOUT_MS).catch(() => undefined);
+  if (!drained) log.warn('drain timed out', { inFlight: inFlight.size });
+  // Only feeds a debug log today. P7 will capture the page details for the capsule.
+  if (debugEnabled()) await withTimeout(readPageMetadata(tabId), METADATA_TIMEOUT_MS).catch(() => undefined);
   await withTimeout(chrome.debugger.detach({ tabId }), DETACH_TIMEOUT_MS).catch(() => undefined);
 }
 
@@ -230,18 +283,12 @@ export function finishSession(reason: FinishReason): Promise<RecordingState> {
     if (reason === 'stop') {
       draining = true;
       await withTimeout(stopSequence(state.tabId), FINISH_BUDGET_MS).catch((error: unknown) => {
-        console.warn(`${LOG_PREFIX} stop sequence did not finish`, errorMessage(error));
+        log.warn('stop sequence did not finish', { error: errorMessage(error) });
       });
       // Safety net if a step above timed out before the detach ran. Detaching twice is harmless.
       void chrome.debugger.detach({ tabId: state.tabId }).catch(() => undefined);
     }
-    buffer.mutate((current) => {
-      for (const record of markedPending(current)) {
-        if (fetching.has(record.requestId)) continue;
-        insertNetwork(current, buildHttpErrorEntry(record));
-      }
-      current.pending = [];
-    });
+    insertUnfinishedMarked();
     await buffer.flush();
     const stopped: RecordingState = {
       status: 'stopped',
@@ -250,8 +297,8 @@ export function finishSession(reason: FinishReason): Promise<RecordingState> {
       stoppedAt: Date.now(),
     };
     await setState(stopped);
-    console.log(`${LOG_PREFIX} recording stopped`, { tabId: state.tabId, reason });
-    await logSummary(reason);
+    log.info('recording stopped', { tabId: state.tabId, reason, counts: countsOf(buffer.getState()) });
+    if (debugEnabled()) await logSummary(reason);
     return stopped;
   };
 
@@ -262,18 +309,22 @@ export function finishSession(reason: FinishReason): Promise<RecordingState> {
   return finishing;
 }
 
-export async function stopRecording(): Promise<RecordingState> {
-  await ready;
-  return finishSession('stop');
+export function stopRecording(): Promise<RecordingState> {
+  return runExclusive(async () => {
+    await ready;
+    return finishSession('stop');
+  });
 }
 
-export async function clearBuffers(): Promise<RecordingState> {
-  await ready;
-  if (getCurrent().status === 'recording') throw new Error('Stop recording before clearing.');
-  await buffer.reset();
-  const idle: RecordingState = { status: 'idle' };
-  await setState(idle);
-  return idle;
+export function clearBuffers(): Promise<RecordingState> {
+  return runExclusive(async () => {
+    await ready;
+    if (getCurrent().status === 'recording') throw new Error('Stop recording before clearing.');
+    await buffer.reset();
+    const idle: RecordingState = { status: 'idle' };
+    await setState(idle);
+    return idle;
+  });
 }
 
 export async function getCounts(): Promise<{ counts: BufferCounts; persistenceOk: boolean }> {
@@ -294,7 +345,7 @@ function recordConsole(raw: RawConsoleEntry | null): void {
 
 function logEntry(kind: 'console' | 'network', entry: object, merged: boolean): void {
   const { rawHashes: _rawHashes, requestHeaders: _headers, seq: _seq, touched: _touched, ...printable } = entry as Record<string, unknown>;
-  console.log(`${LOG_PREFIX} ${kind}`, { merged, ...printable });
+  log.debug(kind, { merged, ...printable });
 }
 
 async function fetchResponseBody(tabId: number, record: PendingRequest, encodedDataLength: number): Promise<string | undefined> {
@@ -332,15 +383,16 @@ function track(task: Promise<void>): void {
 
 function finalizeMarked(tabId: number, record: PendingRequest, encodedDataLength: number): void {
   const token = buffer.generation();
-  fetching.add(record.requestId);
+  const fetchToken: FetchToken = { abandoned: false };
+  fetching.set(record.requestId, fetchToken);
   track(
     (async () => {
       const [body, requestBody] = await Promise.all([
         fetchResponseBody(tabId, record, encodedDataLength),
         fetchRequestBody(tabId, record),
       ]);
-      fetching.delete(record.requestId);
-      if (!buffer.isCurrent(token)) return;
+      if (fetching.get(record.requestId) === fetchToken) fetching.delete(record.requestId);
+      if (fetchToken.abandoned || !buffer.isCurrent(token)) return;
       const raw = buildHttpErrorEntry(record, body, requestBody);
       let result: { entry: NetworkEntry; merged: boolean } | undefined;
       buffer.mutate((state) => {
@@ -432,7 +484,7 @@ export async function handleDetach(source: chrome.debugger.Debuggee, reason: str
   await ready;
   const state = getCurrent();
   if (state.status !== 'recording' || source.tabId !== state.tabId) return;
-  console.log(`${LOG_PREFIX} debugger detached`, { reason });
+  log.info('debugger detached', { reason });
   await finishSession(reason === 'canceled_by_user' ? 'canceled_by_user' : 'target_closed');
 }
 
