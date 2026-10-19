@@ -4,10 +4,10 @@
  * re-tuned at the step-7 checkpoint.
  */
 import { describe, expect, it } from 'vitest';
-import { redactBody } from '../src/core/redact-body';
-import { redactHeaders } from '../src/core/redact-headers';
-import { redactText } from '../src/core/redact-text';
-import { redactUrl } from '../src/core/redact-url';
+import { redactBody } from '../src/core/redact/redact-body';
+import { redactHeaders } from '../src/core/redact/redact-headers';
+import { redactText } from '../src/core/redact/redact-text';
+import { redactUrl } from '../src/core/redact/redact-url';
 import {
   SEED,
   longestSurvivingFragment,

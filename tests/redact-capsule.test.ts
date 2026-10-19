@@ -14,7 +14,7 @@ import {
   type CapsuleDraft,
   type FieldMap,
   type RedactedCapsule,
-} from '../src/core/redact';
+} from '../src/core/redact/redact';
 import type { Capsule, CapsuleSummary, ConsoleEntry, ElementSnapshot, NetworkEntry } from '../src/core/types';
 
 const R = '[REDACTED]';

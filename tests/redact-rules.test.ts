@@ -22,8 +22,8 @@ import {
   findTokenSpans,
   isSensitiveKey,
   splitKey,
-} from '../src/core/redact-rules';
-import { applySpans, resolveSpans } from '../src/core/redact-spans';
+} from '../src/core/redact/redact-rules';
+import { applySpans, resolveSpans } from '../src/core/redact/redact-spans';
 
 describe('splitKey and isSensitiveKey', () => {
   it('splits camelCase, snake_case and kebab-case', () => {

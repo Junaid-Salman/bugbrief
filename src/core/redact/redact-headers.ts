@@ -1,4 +1,4 @@
-import { FIELD } from './limits';
+import { FIELD } from '../limits';
 import { textSpans } from './redact-text';
 import { urlSpans } from './redact-url';
 import { isSensitiveKey } from './redact-rules';

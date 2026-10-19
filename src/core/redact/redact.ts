@@ -3,15 +3,15 @@
  * private keys) and emails. It does NOT detect card numbers, phone numbers, national ids, names,
  * addresses or IPs (plan G22, spec §4.4), and it does not touch screenshot pixels (D3).
  */
-import { refoldRedacted } from './consolidate';
-import { FIELD } from './limits';
+import { refoldRedacted } from '../consolidate';
+import { FIELD } from '../limits';
 import { redactBody } from './redact-body';
 import { redactHeaders } from './redact-headers';
 import { redactHtml, redactSelector } from './redact-html';
 import { redactText, textSpans } from './redact-text';
 import { urlSpans } from './redact-url';
 import { REDACTED, applySpans, type Applied } from './redact-spans';
-import type { Capsule, CapsuleSummary, ConsoleEntry, ElementSnapshot, NetworkEntry } from './types';
+import type { Capsule, CapsuleSummary, ConsoleEntry, ElementSnapshot, NetworkEntry } from '../types';
 
 export { REDACTED } from './redact-spans';
 

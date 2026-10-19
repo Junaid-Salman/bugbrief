@@ -1,11 +1,11 @@
 /** Phase 4.1: fixes from Reviews/p4-redaction-review.md. Criteria 16 to 25 of the P4 plan. */
 import { describe, expect, it } from 'vitest';
-import { redactBody } from '../src/core/redact-body';
-import { redactText } from '../src/core/redact-text';
-import { isMasked } from '../src/core/redact-spans';
-import { redactHtml } from '../src/core/redact-html';
-import { redactCapsule, sealRedacted, type CapsuleDraft } from '../src/core/redact';
-import { decodeForDetection } from '../src/core/redact-url';
+import { redactBody } from '../src/core/redact/redact-body';
+import { redactText } from '../src/core/redact/redact-text';
+import { isMasked } from '../src/core/redact/redact-spans';
+import { redactHtml } from '../src/core/redact/redact-html';
+import { redactCapsule, sealRedacted, type CapsuleDraft } from '../src/core/redact/redact';
+import { decodeForDetection } from '../src/core/redact/redact-url';
 import { stripInternal } from '../src/core/consolidate';
 
 const R = '[REDACTED]';

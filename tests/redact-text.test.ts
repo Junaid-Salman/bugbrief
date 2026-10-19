@@ -1,11 +1,11 @@
 /** Steps 3 to 7: URLs, JSON, bodies, free text and headers. */
 import { describe, expect, it } from 'vitest';
-import { redactBody } from '../src/core/redact-body';
-import { redactHeaders } from '../src/core/redact-headers';
-import { jsonSpans } from '../src/core/redact-json';
-import { redactText } from '../src/core/redact-text';
-import { redactUrl, urlSpans } from '../src/core/redact-url';
-import { applySpans } from '../src/core/redact-spans';
+import { redactBody } from '../src/core/redact/redact-body';
+import { redactHeaders } from '../src/core/redact/redact-headers';
+import { jsonSpans } from '../src/core/redact/redact-json';
+import { redactText } from '../src/core/redact/redact-text';
+import { redactUrl, urlSpans } from '../src/core/redact/redact-url';
+import { applySpans } from '../src/core/redact/redact-spans';
 
 const R = '[REDACTED]';
 

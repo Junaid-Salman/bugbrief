@@ -1,6 +1,6 @@
 /** Step 8: outerHTML scanner (G19, Q7, Q10, §2.4) and the selector helper (G20). */
 import { describe, expect, it } from 'vitest';
-import { redactHtml, redactSelector } from '../src/core/redact-html';
+import { redactHtml, redactSelector } from '../src/core/redact/redact-html';
 
 const R = '[REDACTED]';
 

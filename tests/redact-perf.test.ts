@@ -5,15 +5,15 @@
  * at 200 KB. The explicit 30 000 ms timeout is needed because Vitest's default is 5 s.
  */
 import { describe, expect, it } from 'vitest';
-import { redactBody } from '../src/core/redact-body';
-import { redactHeaders } from '../src/core/redact-headers';
-import { redactHtml, redactSelector } from '../src/core/redact-html';
-import { redactCapsule, type CapsuleDraft } from '../src/core/redact';
+import { redactBody } from '../src/core/redact/redact-body';
+import { redactHeaders } from '../src/core/redact/redact-headers';
+import { redactHtml, redactSelector } from '../src/core/redact/redact-html';
+import { redactCapsule, type CapsuleDraft } from '../src/core/redact/redact';
 import { toConsoleEntry, toNetworkEntry } from '../src/core/consolidate';
 import { FIELD } from '../src/core/limits';
 import { SEED, mulberry32, randomSecret } from './helpers/secrets';
-import { redactText } from '../src/core/redact-text';
-import { redactUrl } from '../src/core/redact-url';
+import { redactText } from '../src/core/redact/redact-text';
+import { redactUrl } from '../src/core/redact/redact-url';
 
 const KB = 1024;
 const WARMUPS = 3;
