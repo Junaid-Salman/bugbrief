@@ -3,21 +3,37 @@
  * Step 4: overlay, swallowed events, Esc, cleanup, re-injection and the pre-send order
  * (criteria 2, 3, 7, 8). Frames are driven by hand so the order is deterministic.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PickerToWorker } from '../src/shared/messages';
 import { startPicker, type PickerHandle } from '../src/content/picker-run';
 
 interface Rig {
+  timers: Array<{ id: number; fn: () => void; ms: number; cleared: boolean }>;
+  fireTimers: () => void;
+  start: (overrides?: Partial<Parameters<typeof startPicker>[0]>) => PickerHandle | undefined;
   handles: PickerHandle[];
   sent: PickerToWorker[];
   frames: Array<() => void>;
   log: string[];
   flushFrame: () => void;
-  start: () => PickerHandle | undefined;
 }
 
 let rig: Rig;
 let target: HTMLElement;
+
+// jsdom has a real `Element.prototype.getBoundingClientRect` (all zeros), and the picker reads it
+// through the prototype (dom-safe), so tests stub the prototype and key the answer by element.
+const rects = new WeakMap<Element, () => DOMRect>();
+const realRect = Element.prototype.getBoundingClientRect;
+beforeAll(() => {
+  Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
+    const stub = rects.get(this);
+    return stub ? stub() : realRect.call(this);
+  };
+});
+afterAll(() => {
+  Element.prototype.getBoundingClientRect = realRect;
+});
 
 function stackAt(elements: Element[]): void {
   (document as unknown as { elementsFromPoint: () => Element[] }).elementsFromPoint = () => elements;
@@ -28,7 +44,12 @@ function makeRig(): Rig {
   const frames: Array<() => void> = [];
   const log: string[] = [];
   const handles: PickerHandle[] = [];
+  const timers: Rig['timers'] = [];
   return {
+    timers,
+    fireTimers() {
+      for (const timer of timers.splice(0)) if (!timer.cleared) timer.fn();
+    },
     handles,
     sent,
     frames,
@@ -37,8 +58,18 @@ function makeRig(): Rig {
       const callbacks = frames.splice(0);
       for (const callback of callbacks) callback();
     },
-    start: () => {
+    start: (overrides = {}) => {
       const handle = startPicker({
+        requireTrusted: false,
+        setTimeout: (fn, ms) => {
+          const id = timers.length + 1;
+          timers.push({ id, fn, ms, cleared: false });
+          return id;
+        },
+        clearTimeout: (id) => {
+          const timer = timers.find((t) => t.id === id);
+          if (timer) timer.cleared = true;
+        },
         send: (message) => {
           log.push('send');
           sent.push(message);
@@ -48,6 +79,7 @@ function makeRig(): Rig {
           return frames.length;
         },
         cancelFrame: () => undefined,
+        ...overrides,
       });
       if (handle) handles.push(handle);
       return handle;
@@ -170,7 +202,7 @@ describe('hover highlight (criterion 4)', () => {
   it('draws the box and label for the element under the pointer, throttled to a frame', () => {
     const handle = rig.start() as PickerHandle;
     stackAt([handle.host, target]);
-    target.getBoundingClientRect = () => ({ x: 10, y: 50, left: 10, top: 50, right: 110, bottom: 90, width: 100, height: 40, toJSON: () => ({}) }) as DOMRect;
+    rects.set(target, () => ({ x: 10, y: 50, left: 10, top: 50, right: 110, bottom: 90, width: 100, height: 40, toJSON: () => ({}) }) as DOMRect);
     window.dispatchEvent(new MouseEvent('pointermove', { clientX: 20, clientY: 60 }));
     window.dispatchEvent(new MouseEvent('pointermove', { clientX: 21, clientY: 61 }));
     expect(rig.frames).toHaveLength(1);
@@ -203,10 +235,10 @@ describe('pick sequence (criterion 7)', () => {
     stackAt([handle.host, target]);
     const scroll = vi.fn(() => rig.log.push('scroll'));
     (target as unknown as { scrollIntoView: typeof scroll }).scrollIntoView = scroll;
-    target.getBoundingClientRect = () => {
+    rects.set(target, () => {
       rig.log.push(handle.host.isConnected ? 'rect-with-overlay' : 'rect');
       return { x: 5, y: 6, left: 5, top: 6, right: 35, bottom: 46, width: 30, height: 40, toJSON: () => ({}) } as DOMRect;
-    };
+    });
 
     handle.host.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: 7, clientY: 8 }));
     // The first frame request happens after the rect is re-read.
@@ -237,5 +269,161 @@ describe('pick sequence (criterion 7)', () => {
     await settle();
     expect(rig.sent).toHaveLength(1);
     expect(rig.start()).toBeDefined();
+  });
+});
+
+function clickAt(handle: PickerHandle): void {
+  handle.host.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: 7, clientY: 8 }));
+}
+
+function stubScroll(): void {
+  (target as unknown as { scrollIntoView: () => void }).scrollIntoView = () => undefined;
+}
+
+describe('a failure never traps the user (criterion 18)', () => {
+  it('removes the overlay and cancels when describing the element throws', async () => {
+    const handle = rig.start() as PickerHandle;
+    stackAt([handle.host, target]);
+    stubScroll();
+    // Reads go through the prototype, so make the prototype getter throw for this element.
+    const real = Object.getOwnPropertyDescriptor(Element.prototype, 'outerHTML') as PropertyDescriptor;
+    Object.defineProperty(Element.prototype, 'outerHTML', {
+      get() {
+        if (this === target) throw new Error('boom');
+        return (real.get as () => string).call(this);
+      },
+      configurable: true,
+    });
+    try {
+      clickAt(handle);
+      await settle();
+      expect(rig.sent).toEqual([{ type: 'PICKER_CANCELLED' }]);
+      expect(handle.host.isConnected).toBe(false);
+      expect(rig.start()).toBeDefined(); // the next pick works
+    } finally {
+      Object.defineProperty(Element.prototype, 'outerHTML', real);
+    }
+  });
+
+  it('cancels when the rect read throws after the overlay is gone', async () => {
+    const handle = rig.start() as PickerHandle;
+    stackAt([handle.host, target]);
+    stubScroll();
+    rects.set(target, () => {
+      throw new Error('no layout');
+    });
+    clickAt(handle);
+    await settle();
+    expect(rig.sent).toEqual([{ type: 'PICKER_CANCELLED' }]);
+    expect(handle.host.isConnected).toBe(false);
+  });
+
+  it('survives a send that throws', async () => {
+    const handle = rig.start({
+      send: () => {
+        throw new Error('port');
+      },
+    }) as PickerHandle;
+    stackAt([handle.host, target]);
+    stubScroll();
+    clickAt(handle);
+    await settle();
+    expect(handle.host.isConnected).toBe(false);
+  });
+
+  it('a throw while highlighting hides the box and the next frame still runs', () => {
+    const handle = rig.start() as PickerHandle;
+    stackAt([handle.host, target]);
+    rects.set(target, () => {
+      throw new Error('bad node');
+    });
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 1, clientY: 1 }));
+    expect(() => rig.flushFrame()).not.toThrow();
+    expect(handle.box.style.display).toBe('none');
+    rects.set(target, () => ({ x: 1, y: 2, left: 1, top: 2, right: 11, bottom: 12, width: 10, height: 10, toJSON: () => ({}) }) as DOMRect);
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 2, clientY: 2 }));
+    rig.flushFrame();
+    expect(handle.box.style.display).toBe('block');
+  });
+});
+
+describe('the pick is not lost (criterion 19, Q5)', () => {
+  it('sends at once, without frames, when the tab is hidden', async () => {
+    const handle = rig.start() as PickerHandle;
+    stackAt([handle.host, target]);
+    stubScroll();
+    const state = vi.spyOn(Document.prototype, 'visibilityState', 'get').mockReturnValue('hidden');
+    clickAt(handle);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(rig.sent).toHaveLength(1);
+    expect(rig.sent[0]?.type).toBe('ELEMENT_PICKED');
+    expect(rig.frames).toHaveLength(0);
+    state.mockRestore();
+  });
+
+  it('sends after the timeout when frames never fire', async () => {
+    const handle = rig.start() as PickerHandle;
+    stackAt([handle.host, target]);
+    stubScroll();
+    clickAt(handle);
+    await Promise.resolve();
+    expect(rig.sent).toEqual([]);
+    expect(rig.timers.map((t) => t.ms)).toEqual([300]);
+    rig.fireTimers();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(rig.sent).toHaveLength(1);
+  });
+
+  it('normal frames win, send once, and clear the timeout', async () => {
+    const handle = rig.start() as PickerHandle;
+    stackAt([handle.host, target]);
+    stubScroll();
+    clickAt(handle);
+    await settle();
+    expect(rig.sent).toHaveLength(1);
+    expect(rig.timers[0]?.cleared).toBe(true);
+    rig.fireTimers();
+    await settle();
+    expect(rig.sent).toHaveLength(1); // the cleared timer does nothing
+  });
+
+  it('a pagehide during the wait sends what it has', async () => {
+    const handle = rig.start() as PickerHandle;
+    stackAt([handle.host, target]);
+    stubScroll();
+    clickAt(handle);
+    await Promise.resolve();
+    window.dispatchEvent(new Event('pagehide'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(rig.sent).toHaveLength(1);
+  });
+});
+
+describe('page script cannot drive or strand the picker (criterion 23, Q6)', () => {
+  it('ignores a synthetic click and Escape by default, but still swallows the click', async () => {
+    const handle = rig.start({ requireTrusted: true }) as PickerHandle;
+    stackAt([handle.host, target]);
+    stubScroll();
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, clientX: 7, clientY: 8 });
+    handle.host.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    handle.host.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await settle();
+    expect(rig.sent).toEqual([]);
+    expect(handle.host.isConnected).toBe(true);
+  });
+
+  it('recovers when page script removes the overlay: the next start works and the old one is cleaned up', () => {
+    const first = rig.start() as PickerHandle;
+    first.host.remove();
+    const second = rig.start();
+    expect(second).toBeDefined();
+    expect(second?.host.isConnected).toBe(true);
+    // The stale picker's listeners are gone: Escape reaches only the new one.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(rig.sent).toEqual([{ type: 'PICKER_CANCELLED' }]);
   });
 });

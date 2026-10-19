@@ -1,15 +1,25 @@
 import type { PickerToWorker } from '../shared/messages';
+import { createElementOf, documentElementOf, rectOf, scrollIntoViewOf, visibilityStateOf } from './dom-safe';
 import { buildPayload, describeElement, describeTarget, resolveTarget } from './picker-dom';
 
 const FLAG = '__bugbriefPicker';
 const HINT = 'Click an element. Esc cancels.';
 const ACCENT = '#1a73e8';
 const TOP_Z_INDEX = '2147483647';
+// After the click the picker waits for two animation frames so the page repaints without the
+// overlay, but never longer than this: frames do not fire in a hidden tab.
+const FRAME_WAIT_MS = 300;
 // Page handlers must not run while picking: a click on a link must not navigate.
 const SWALLOWED = ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'contextmenu', 'dblclick', 'auxclick'] as const;
 
+/** What a running picker leaves on the window, so a later injection can recover from a stale one. */
+interface PickerSession {
+  host: HTMLElement;
+  cleanup: () => void;
+}
+
 interface PickerWindow extends Window {
-  [FLAG]?: boolean;
+  [FLAG]?: PickerSession | false;
 }
 
 export interface PickerDeps {
@@ -18,6 +28,10 @@ export interface PickerDeps {
   /** Schedules `callback` on the next animation frame. */
   requestFrame: (callback: () => void) => number;
   cancelFrame: (handle: number) => void;
+  setTimeout: (callback: () => void, ms: number) => number;
+  clearTimeout: (handle: number) => void;
+  /** Ignore clicks and keys that page script dispatched (`isTrusted` false). On by default. */
+  requireTrusted: boolean;
 }
 
 export interface PickerHandle {
@@ -42,10 +56,6 @@ function style(el: HTMLElement, rules: Record<string, string>): void {
   for (const [name, value] of Object.entries(rules)) el.style.setProperty(name, value, 'important');
 }
 
-function nextFrame(deps: PickerDeps): Promise<void> {
-  return new Promise((resolve) => deps.requestFrame(() => resolve()));
-}
-
 /** Starts one pick. A second start while one is active does nothing. */
 export function startPicker(overrides: Partial<PickerDeps> = {}): PickerHandle | undefined {
   const win = overrides.win ?? window;
@@ -54,13 +64,20 @@ export function startPicker(overrides: Partial<PickerDeps> = {}): PickerHandle |
     send: overrides.send ?? defaultSend,
     requestFrame: overrides.requestFrame ?? ((callback) => win.requestAnimationFrame(() => callback())),
     cancelFrame: overrides.cancelFrame ?? ((handle) => win.cancelAnimationFrame(handle)),
+    setTimeout: overrides.setTimeout ?? ((callback, ms) => win.setTimeout(callback, ms)),
+    clearTimeout: overrides.clearTimeout ?? ((handle) => win.clearTimeout(handle)),
+    requireTrusted: overrides.requireTrusted ?? true,
   };
   const guard = win as PickerWindow;
-  if (guard[FLAG]) return undefined;
-  guard[FLAG] = true;
+  const existing = guard[FLAG];
+  if (existing) {
+    // Page script can remove the overlay. A picker whose host is gone is stale: clean it up and start fresh.
+    if (existing.host.isConnected) return undefined;
+    existing.cleanup();
+  }
 
   const doc = win.document;
-  const host = doc.createElement('div');
+  const host = createElementOf(doc, 'div');
   style(host, {
     all: 'initial',
     position: 'fixed',
@@ -76,7 +93,7 @@ export function startPicker(overrides: Partial<PickerDeps> = {}): PickerHandle |
   host.tabIndex = -1;
   const root = host.attachShadow({ mode: 'closed' });
 
-  const box = doc.createElement('div');
+  const box = createElementOf(doc, 'div');
   style(box, {
     position: 'fixed',
     display: 'none',
@@ -85,7 +102,7 @@ export function startPicker(overrides: Partial<PickerDeps> = {}): PickerHandle |
     background: 'rgba(26, 115, 232, 0.15)',
     'pointer-events': 'none',
   });
-  const label = doc.createElement('div');
+  const label = createElementOf(doc, 'div');
   style(label, {
     position: 'fixed',
     display: 'none',
@@ -97,7 +114,7 @@ export function startPicker(overrides: Partial<PickerDeps> = {}): PickerHandle |
     'white-space': 'nowrap',
     'pointer-events': 'none',
   });
-  const hint = doc.createElement('div');
+  const hint = createElementOf(doc, 'div');
   hint.textContent = HINT;
   style(hint, {
     position: 'fixed',
@@ -112,23 +129,36 @@ export function startPicker(overrides: Partial<PickerDeps> = {}): PickerHandle |
     'pointer-events': 'none',
   });
   root.append(box, label, hint);
-  doc.documentElement.appendChild(host);
+  documentElementOf(doc).appendChild(host);
   host.focus({ preventScroll: true });
 
   let point: { x: number; y: number } | undefined;
   let frame: number | undefined;
   let done = false;
 
+  function hideHighlight(): void {
+    box.style.setProperty('display', 'none', 'important');
+    label.style.setProperty('display', 'none', 'important');
+  }
+
   function refresh(): void {
     frame = undefined;
     if (done || !point) return;
-    const target = resolveTarget(doc, point.x, point.y, host);
+    try {
+      highlight(point);
+    } catch {
+      // One bad frame (an odd page node) must not stop the next one.
+      hideHighlight();
+    }
+  }
+
+  function highlight(at: { x: number; y: number }): void {
+    const target = resolveTarget(doc, at.x, at.y, host);
     if (!target) {
-      box.style.setProperty('display', 'none', 'important');
-      label.style.setProperty('display', 'none', 'important');
+      hideHighlight();
       return;
     }
-    const rect = target.getBoundingClientRect();
+    const rect = rectOf(target);
     style(box, {
       display: 'block',
       left: `${rect.left}px`,
@@ -158,11 +188,14 @@ export function startPicker(overrides: Partial<PickerDeps> = {}): PickerHandle |
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
-    if (event.type === 'click') void pick(event as MouseEvent);
+    if (event.type === 'click' && (event.isTrusted || !deps.requireTrusted)) {
+      void pick(event as MouseEvent).catch(() => abandon());
+    }
   }
 
   function onKey(event: Event): void {
     if ((event as KeyboardEvent).key !== 'Escape') return;
+    if (deps.requireTrusted && !event.isTrusted) return; // page script cannot cancel the pick
     event.preventDefault();
     event.stopPropagation();
     cancel();
@@ -183,25 +216,54 @@ export function startPicker(overrides: Partial<PickerDeps> = {}): PickerHandle |
     guard[FLAG] = false;
   }
 
+  /** Something went wrong after the click: leave nothing behind and tell the worker. */
+  function abandon(): void {
+    cleanup();
+    try {
+      deps.send({ type: 'PICKER_CANCELLED' });
+    } catch {
+      // Nothing more to do.
+    }
+  }
+
   function cancel(): void {
     if (done) return;
     cleanup();
     deps.send({ type: 'PICKER_CANCELLED' });
   }
 
+  /** Two animation frames, at most FRAME_WAIT_MS, and none at all in a hidden tab or on pagehide. */
+  function settleFrames(): Promise<void> {
+    if (visibilityStateOf(doc) === 'hidden') return Promise.resolve();
+    return new Promise((resolve) => {
+      let timer: number | undefined;
+      const finish = (): void => {
+        if (timer !== undefined) deps.clearTimeout(timer);
+        win.removeEventListener('pagehide', finish, true);
+        resolve();
+      };
+      timer = deps.setTimeout(finish, FRAME_WAIT_MS);
+      win.addEventListener('pagehide', finish, true);
+      deps.requestFrame(() => deps.requestFrame(finish));
+    });
+  }
+
   async function pick(event: MouseEvent): Promise<void> {
     if (done) return;
-    const target = resolveTarget(doc, event.clientX, event.clientY, host);
-    if (!target) return; // nothing under the point: stay active
-    const described = describeElement(target);
-    // Spec §4.2 step 5, in this order: scroll, remove the overlay, re-read the rect, wait two
-    // frames. `instant` matters: a smooth scroll would leave the re-read rect wrong.
-    target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-    cleanup();
-    const rect = target.getBoundingClientRect();
-    await nextFrame(deps);
-    await nextFrame(deps);
-    deps.send(buildPayload(described, rect, win));
+    try {
+      const target = resolveTarget(doc, event.clientX, event.clientY, host);
+      if (!target) return; // nothing under the point: stay active
+      const described = describeElement(target);
+      // Spec §4.2 step 5, in this order: scroll, remove the overlay, re-read the rect, wait two
+      // frames. `instant` matters: a smooth scroll would leave the re-read rect wrong.
+      scrollIntoViewOf(target, { block: 'center', inline: 'nearest', behavior: 'instant' });
+      cleanup();
+      const rect = rectOf(target);
+      await settleFrames();
+      deps.send(buildPayload(described, rect, win));
+    } catch {
+      abandon();
+    }
   }
 
   win.addEventListener('pointermove', onMove, true);
@@ -212,5 +274,6 @@ export function startPicker(overrides: Partial<PickerDeps> = {}): PickerHandle |
   win.addEventListener('pagehide', cleanup, true);
   for (const type of SWALLOWED) win.addEventListener(type, onSwallow, true);
 
+  guard[FLAG] = { host, cleanup };
   return { host, box, label, hint, cancel };
 }

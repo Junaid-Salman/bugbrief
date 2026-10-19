@@ -45,12 +45,24 @@ export function pickSenderTabId(sender: chrome.runtime.MessageSender): number | 
   return sender.tab.id;
 }
 
-/** ELEMENT_PICKED. Returns true when a snapshot was stored. */
-export async function receivePick(message: unknown, sender: chrome.runtime.MessageSender): Promise<boolean> {
+/**
+ * ELEMENT_PICKED. Returns true when a snapshot was stored. While recording, only the recorded tab
+ * may deliver a pick (Q2): the rule is also checked here, not only at START_PICKER, because the
+ * recording can start on another tab while the overlay is still up.
+ */
+export async function receivePick(
+  message: unknown,
+  sender: chrome.runtime.MessageSender,
+  recording: RecordingState,
+): Promise<boolean> {
   await elementsReady;
   const tabId = pickSenderTabId(sender);
   if (tabId === undefined) {
     log.warn('pick rejected', { reason: 'sender' });
+    return false;
+  }
+  if (recording.status === 'recording' && recording.tabId !== tabId) {
+    log.warn('pick rejected', { reason: 'tab', tabId, recordingTabId: recording.tabId });
     return false;
   }
   const picked = sanitizePick(message);

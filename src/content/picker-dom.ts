@@ -1,6 +1,24 @@
 import { STYLE_PROPERTIES } from '../core/element-model';
 import { FIELD, capText } from '../core/limits';
 import type { PickerToWorker } from '../shared/messages';
+import {
+  childrenOf,
+  classNamesOf,
+  defaultViewOf,
+  elementsFromPointOf,
+  idOf,
+  localNameOf,
+  namespaceOf,
+  nodeTypeOf,
+  outerHTMLOf,
+  ownerDocumentOf,
+  parentElementOf,
+  parentNodeOf,
+  querySelectorAllOf,
+  rootNodeOf,
+  shadowRootOf,
+  titleOf,
+} from './dom-safe';
 
 export type ElementPicked = Extract<PickerToWorker, { type: 'ELEMENT_PICKED' }>;
 type Root = Document | ShadowRoot;
@@ -43,12 +61,12 @@ export function cssEscape(value: string): string {
 }
 
 function isShadowRoot(node: Node): node is ShadowRoot {
-  return node.nodeType === 11 && 'host' in node;
+  return nodeTypeOf(node) === 11 && 'host' in node;
 }
 
 function isUnique(selector: string, root: ParentNode, target: Element): boolean {
   try {
-    const found = root.querySelectorAll(selector);
+    const found = querySelectorAllOf(root, selector);
     return found.length === 1 && found[0] === target;
   } catch {
     return false;
@@ -56,16 +74,16 @@ function isUnique(selector: string, root: ParentNode, target: Element): boolean 
 }
 
 function siblingsOfSameType(node: Element): Element[] {
-  const parent = node.parentNode as ParentNode | null;
+  const parent = parentNodeOf(node);
   if (!parent) return [node];
-  return Array.from(parent.children).filter(
-    (sibling) => sibling.localName === node.localName && sibling.namespaceURI === node.namespaceURI,
-  );
+  const name = localNameOf(node);
+  const namespace = namespaceOf(node);
+  return childrenOf(parent).filter((sibling) => localNameOf(sibling) === name && namespaceOf(sibling) === namespace);
 }
 
 function segmentFor(node: Element, forceNth: boolean): string {
-  let segment = node.localName;
-  for (const className of Array.from(node.classList).slice(0, MAX_CLASSES)) {
+  let segment = localNameOf(node);
+  for (const className of classNamesOf(node).slice(0, MAX_CLASSES)) {
     segment += `.${cssEscape(className)}`;
   }
   const same = siblingsOfSameType(node);
@@ -78,16 +96,17 @@ function fullPath(el: Element): string {
   const segments: string[] = [];
   let node: Element | null = el;
   while (node) {
-    segments.unshift(`${node.localName}:nth-of-type(${siblingsOfSameType(node).indexOf(node) + 1})`);
-    node = node.parentElement;
+    segments.unshift(`${localNameOf(node)}:nth-of-type(${siblingsOfSameType(node).indexOf(node) + 1})`);
+    node = parentElementOf(node);
   }
   return segments.join(' > ');
 }
 
 /** The shortest selector for `el` that is unique inside `root`, built from the element upward. */
 function selectorWithin(el: Element, root: Root): string {
-  if (el.id) {
-    const candidate = `#${cssEscape(el.id)}`;
+  const ownId = idOf(el);
+  if (ownId) {
+    const candidate = `#${cssEscape(ownId)}`;
     if (isUnique(candidate, root, el)) return candidate;
   }
   const segments: string[] = [];
@@ -96,9 +115,10 @@ function selectorWithin(el: Element, root: Root): string {
     segments.unshift(segmentFor(node, false));
     const candidate = segments.join(' > ');
     if (isUnique(candidate, root, el)) return candidate;
-    node = node.parentElement;
-    if (node?.id) {
-      const anchor = `#${cssEscape(node.id)}`;
+    node = parentElementOf(node);
+    const parentId = node ? idOf(node) : '';
+    if (node && parentId) {
+      const anchor = `#${cssEscape(parentId)}`;
       if (isUnique(anchor, root, node)) {
         const anchored = [anchor, ...segments].join(' > ');
         if (isUnique(anchored, root, el)) return anchored;
@@ -116,7 +136,7 @@ export function buildSelector(el: Element): string {
   const parts: string[] = [];
   let current: Element = el;
   for (let depth = 0; depth < MAX_SHADOW_DEPTH; depth++) {
-    const root = current.getRootNode();
+    const root = rootNodeOf(current);
     parts.unshift(selectorWithin(current, root as Root));
     if (!isShadowRoot(root)) break;
     current = root.host;
@@ -125,7 +145,8 @@ export function buildSelector(el: Element): string {
 }
 
 export function readStyles(el: Element): Record<string, string> {
-  const view = el.ownerDocument.defaultView;
+  const doc = ownerDocumentOf(el);
+  const view = doc ? defaultViewOf(doc) : null;
   const styles: Record<string, string> = {};
   if (!view) return styles;
   const computed = view.getComputedStyle(el);
@@ -140,9 +161,9 @@ export function readStyles(el: Element): Record<string, string> {
  * shadow root or an iframe is not entered: the host or the `<iframe>` is the target.
  */
 export function resolveTarget(doc: Document, x: number, y: number, overlay: Element): Element | undefined {
-  let target = doc.elementsFromPoint(x, y).find((candidate) => candidate !== overlay);
+  let target = elementsFromPointOf(doc, x, y).find((candidate) => candidate !== overlay);
   for (let depth = 0; target && depth < MAX_SHADOW_DEPTH; depth++) {
-    const inner = target.shadowRoot?.elementFromPoint(x, y);
+    const inner = shadowRootOf(target)?.elementFromPoint(x, y);
     if (!inner || inner === target) break;
     target = inner;
   }
@@ -151,9 +172,10 @@ export function resolveTarget(doc: Document, x: number, y: number, overlay: Elem
 
 /** `tag#id.class  120×40` for the hover label. */
 export function describeTarget(el: Element, rect: { width: number; height: number }): string {
-  let label = el.localName;
-  if (el.id) label += `#${el.id}`;
-  const first = el.classList.item(0);
+  let label = localNameOf(el);
+  const id = idOf(el);
+  if (id) label += `#${id}`;
+  const first = classNamesOf(el)[0];
   if (first) label += `.${first}`;
   return capText(`${label}  ${Math.round(rect.width)}×${Math.round(rect.height)}`, 80).text;
 }
@@ -167,7 +189,7 @@ export interface Described {
 
 /** Everything that does not depend on scroll position. Read at click time. */
 export function describeElement(el: Element): Described {
-  const html = capText(el.outerHTML, FIELD.outerHTML);
+  const html = capText(outerHTMLOf(el), FIELD.outerHTML);
   const described: Described = {
     selector: buildSelector(el),
     outerHTML: html.text,
@@ -191,6 +213,6 @@ export function buildPayload(
     viewport: { width: win.innerWidth, height: win.innerHeight },
     devicePixelRatio: win.devicePixelRatio,
     pageUrl: capText(win.location.href, FIELD.pageUrl).text,
-    pageTitle: capText(win.document.title, FIELD.pageTitle).text,
+    pageTitle: capText(titleOf(win.document), FIELD.pageTitle).text,
   };
 }

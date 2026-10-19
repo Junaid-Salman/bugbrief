@@ -78,6 +78,15 @@ describe('handleMessage with an element', () => {
     expect(store.size).toBe(0);
   });
 
+  it('rejects a pick from another tab while recording, accepts the recorded tab (criterion 20)', async () => {
+    const { handleMessage } = await load();
+    state = { status: 'recording', tabId: 9, startedAt: 1 };
+    expect(await handleMessage(picked, tabSender)).toEqual({ ok: false, error: 'Pick ignored.' });
+    expect(store.size).toBe(0);
+    state = { status: 'recording', tabId: 7, startedAt: 1 };
+    expect(await handleMessage(picked, tabSender)).toMatchObject({ ok: true, hasElement: true });
+  });
+
   it('PICKER_CANCELLED changes nothing', async () => {
     const { handleMessage } = await load();
     await handleMessage(picked, tabSender);

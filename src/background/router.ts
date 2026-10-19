@@ -42,9 +42,9 @@ export async function handleMessage(
         return { ok: true, state, ...(await elementFields()), ...(await getCounts()) };
       }
       case 'ELEMENT_PICKED': {
-        if (!(await receivePick(message, sender))) return { ok: false, error: 'Pick ignored.' };
         await ready;
         const state = await reconcile();
+        if (!(await receivePick(message, sender, state))) return { ok: false, error: 'Pick ignored.' };
         return { ok: true, state, ...(await elementFields()), ...(await getCounts()) };
       }
       case 'PICKER_CANCELLED': {

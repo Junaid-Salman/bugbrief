@@ -60,6 +60,14 @@
       <input name="password" type="password" value="hunter2-demo" />
       <input type="hidden" name="csrf" value="csrf-demo-token-123" />
     </form>
+    <!-- DOM clobbering (Phase 5.1): fields named like DOM properties. Picking this form must still work. -->
+    <form id="clobberForm" class="clobber" onsubmit="return false">
+      <input name="id" value="1" />
+      <input name="classList" />
+      <input name="children" />
+      <button type="button">Save</button>
+    </form>
+    <img name="title" alt="" width="1" height="1" />
     <div id="pickShadowHost"></div>
     <div id="pickTall" style="height: 1600px; border: 2px dashed #888; margin-top: 12px">
       Tall element (taller than the viewport). Pick this to check the clip.

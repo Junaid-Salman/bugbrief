@@ -138,10 +138,52 @@ describe('pickSenderTabId (criterion 10)', () => {
   });
 });
 
+const IDLE = { status: 'idle' } as const;
+const recordingOn = (tabId: number) => ({ status: 'recording', tabId, startedAt: 1 }) as const;
+const stoppedOn = (tabId: number) => ({ status: 'stopped', tabId, startedAt: 1, stoppedAt: 2 }) as const;
+
+describe('receivePick: the recording tab (criterion 20)', () => {
+  it('rejects a pick from another tab while recording and keeps the earlier snapshot', async () => {
+    const flow = await load();
+    await flow.receivePick(good(), tabSender(1), IDLE);
+    expect(await flow.receivePick(good({ element: { ...good().element, selector: '#other' } }), tabSender(1), recordingOn(2))).toBe(false);
+    expect((await flow.elementFields()).element).toMatchObject({ selector: '#buy', tabId: 1 });
+  });
+
+  it('accepts a pick from the recorded tab', async () => {
+    const flow = await load();
+    expect(await flow.receivePick(good(), tabSender(2), recordingOn(2))).toBe(true);
+    expect((await flow.elementFields()).element).toMatchObject({ tabId: 2 });
+  });
+
+  it('accepts any tab when idle or stopped (Q2)', async () => {
+    const flow = await load();
+    expect(await flow.receivePick(good(), tabSender(5), IDLE)).toBe(true);
+    expect(await flow.receivePick(good(), tabSender(6), stoppedOn(2))).toBe(true);
+  });
+
+  it('logs the rejection with ids only', async () => {
+    const flow = await load();
+    await flow.receivePick(good({ pageTitle: 'secret title jane@example.com' }), tabSender(1), recordingOn(2));
+    const output = vi.mocked(console.warn).mock.calls.flat().map((v) => JSON.stringify(v)).join(' ');
+    expect(output).toContain('tab');
+    expect(output).not.toContain('jane@example.com');
+  });
+});
+
+describe('the popup summary redacts the page URL (criterion 24)', () => {
+  it('masks a token in the query string', async () => {
+    const flow = await load();
+    await flow.receivePick(good({ pageUrl: 'https://example.com/page?token=abc123&x=1' }), tabSender(9), IDLE);
+    const element = (await flow.elementFields()).element;
+    expect(element?.pageUrl).toBe('https://example.com/page?token=[REDACTED]&x=1');
+  });
+});
+
 describe('receivePick', () => {
   it('validates, stores and reports the element', async () => {
     const flow = await load();
-    expect(await flow.receivePick(good(), tabSender(9))).toBe(true);
+    expect(await flow.receivePick(good(), tabSender(9), IDLE)).toBe(true);
     const fields = await flow.elementFields();
     expect(fields.hasElement).toBe(true);
     expect(fields.element).toMatchObject({ selector: '#buy', tabId: 9, pageUrl: 'https://example.com/page' });
@@ -150,23 +192,23 @@ describe('receivePick', () => {
 
   it('rejects a bad sender or payload with no state change', async () => {
     const flow = await load();
-    expect(await flow.receivePick(good(), { id: EXTENSION_ID } as chrome.runtime.MessageSender)).toBe(false);
-    expect(await flow.receivePick(good({ devicePixelRatio: 'x' }), tabSender(9))).toBe(false);
-    expect(await flow.receivePick('junk', tabSender(9))).toBe(false);
+    expect(await flow.receivePick(good(), { id: EXTENSION_ID } as chrome.runtime.MessageSender, IDLE)).toBe(false);
+    expect(await flow.receivePick(good({ devicePixelRatio: 'x' }), tabSender(9), IDLE)).toBe(false);
+    expect(await flow.receivePick('junk', tabSender(9), IDLE)).toBe(false);
     expect((await flow.elementFields()).hasElement).toBe(false);
     expect(store.size).toBe(0);
   });
 
   it('replaces the earlier pick', async () => {
     const flow = await load();
-    await flow.receivePick(good(), tabSender(1));
-    await flow.receivePick(good({ element: { ...good().element, selector: '#second' } }), tabSender(2));
+    await flow.receivePick(good(), tabSender(1), IDLE);
+    await flow.receivePick(good({ element: { ...good().element, selector: '#second' } }), tabSender(2), IDLE);
     expect((await flow.elementFields()).element).toMatchObject({ selector: '#second', tabId: 2 });
   });
 
   it('survives a worker restart', async () => {
     const flow = await load();
-    await flow.receivePick(good(), tabSender(9));
+    await flow.receivePick(good(), tabSender(9), IDLE);
     const restarted = await load(); // fresh modules, same session storage
     expect((await restarted.elementFields()).hasElement).toBe(true);
   });
@@ -178,8 +220,9 @@ describe('receivePick', () => {
     await flow.receivePick(
       good({ pageTitle: secretTitle, element: { ...good().element, selector: secretSelector, outerHTML: '<input value="hunter2">' } }),
       tabSender(9),
+      IDLE,
     );
-    await flow.receivePick(good({ devicePixelRatio: 0, pageTitle: secretTitle }), tabSender(9)); // rejected
+    await flow.receivePick(good({ devicePixelRatio: 0, pageTitle: secretTitle }), tabSender(9), IDLE); // rejected
     const output = [...vi.mocked(console.log).mock.calls, ...vi.mocked(console.warn).mock.calls].flat().map((v) => JSON.stringify(v)).join(' ');
     expect(output).toContain('element picked');
     for (const secret of ['hunter2', 'jane@example.com', secretTitle]) expect(output).not.toContain(secret);

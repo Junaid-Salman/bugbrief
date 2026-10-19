@@ -1,5 +1,6 @@
 import type { PickedElement, PickedPage } from '../core/element-model';
 import { redactSelector } from '../core/redact/redact-html';
+import { redactUrl } from '../core/redact/redact-url';
 import type { ElementSnapshot } from '../core/types';
 import type { ElementSummary } from '../shared/messages';
 import type { SessionStorageLike } from './buffer';
@@ -35,7 +36,7 @@ export function summarize(stored: StoredElement): ElementSummary {
   return {
     selector: masked.length > SUMMARY_SELECTOR_MAX ? `${masked.slice(0, SUMMARY_SELECTOR_MAX - 1)}…` : masked,
     tabId: stored.tabId,
-    pageUrl: stored.page.url,
+    pageUrl: redactUrl(stored.page.url).text, // a query string can carry a token
     pickedAt: stored.pickedAt,
   };
 }
