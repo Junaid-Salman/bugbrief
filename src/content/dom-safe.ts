@@ -113,6 +113,15 @@ export function documentElementOf(doc: Document): HTMLElement {
   return read<HTMLElement>(doc, DOCUMENT(), 'documentElement');
 }
 
+/** `documentElement.clientWidth/clientHeight`: the viewport without classic scrollbars. */
+export function clientSizeOf(doc: Document): { width: number; height: number } {
+  const root = documentElementOf(doc);
+  return {
+    width: read<number>(root, ELEMENT(), 'clientWidth'),
+    height: read<number>(root, ELEMENT(), 'clientHeight'),
+  };
+}
+
 export function createElementOf<K extends keyof HTMLElementTagNameMap>(doc: Document, tag: K): HTMLElementTagNameMap[K] {
   return call<HTMLElementTagNameMap[K]>(doc, DOCUMENT(), 'createElement', tag);
 }

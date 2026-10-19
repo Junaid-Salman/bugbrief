@@ -22,6 +22,22 @@ export const FIELD = {
   headerValue: 256,
 } as const;
 
+/** Screenshot capture (P6). Tuned at the manual checkpoint. */
+export const SCREENSHOT = {
+  padding: 16, // CSS px around the element rect
+  maxSidePx: 3200, // longest side of the crop in device pixels, before the budget loop
+  maxDataUrl: 1_500_000, // characters in the PNG data URL (about 1.1 MB of PNG)
+  storageMargin: 256 * 1024, // bytes kept free in storage.session after the image
+  scaleStep: 0.75, // each budget step scales the crop by this
+  maxSteps: 5, // budget steps after the first encode
+  minSidePx: 24, // stop shrinking below this
+  scaleTolerance: 0.02, // bitmap vs viewport * devicePixelRatio
+  clipTolerance: 0.5, // CSS px
+  minGapMs: 550, // between captureVisibleTab calls (Chrome allows two per second)
+  retryDelayMs: 600,
+  maxRetries: 2,
+} as const;
+
 export const SOFT_LIMIT_BYTES = 7 * 1024 * 1024;
 export const TRIMMED_BODY_LIMIT = 4096;
 

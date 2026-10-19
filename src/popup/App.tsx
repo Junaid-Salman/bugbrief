@@ -2,7 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import type { BufferCounts, ElementSummary, PopupToWorker, RecordingState, WorkerResponse } from '../shared/messages';
 import { isRestrictedUrl, RESTRICTED_MESSAGE } from '../shared/restricted';
 import { Explainer } from './Explainer';
-import { canPick, elementNote, pickLabel, showClear } from './pick-state';
+import { canPick, elementNote, pickLabel, pollWhilePending, screenshotNote, showClear } from './pick-state';
 
 const EXPLAINER_KEY = 'explainerSeen';
 
@@ -59,6 +59,16 @@ export function App() {
       }
     })();
   }, []);
+
+  // The popup closes on every pick, so reopening it during the capture is the normal flow.
+  useEffect(() => {
+    if (element?.screenshot !== 'pending') return undefined;
+    return pollWhilePending(async () => {
+      const response = await send({ type: 'GET_STATE' });
+      apply(response);
+      return response.ok ? response.element : undefined;
+    });
+  }, [element?.screenshot, element?.pickedAt]);
 
   async function run(message: PopupToWorker): Promise<void> {
     setBusy(true);
@@ -135,7 +145,13 @@ export function App() {
       >
         {pickLabel(element)}
       </button>
-      {element ? <p style={styles.element}>{elementNote(element, tab?.id)}</p> : null}
+      {element ? (
+        <p style={styles.element}>
+          {elementNote(element, tab?.id)}
+          <br />
+          {screenshotNote(element)}
+        </p>
+      ) : null}
       {counts ? <Counts counts={counts} /> : null}
       {showClear(state, counts !== undefined && hasData(counts), element) ? (
         <button style={styles.secondary} disabled={busy || !loaded} onClick={() => void run({ type: 'CLEAR' })}>

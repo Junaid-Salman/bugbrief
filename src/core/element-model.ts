@@ -27,6 +27,9 @@ export interface PickedPage {
   title: string;
   viewport: { width: number; height: number };
   devicePixelRatio: number;
+  /** Viewport without classic scrollbars. Absent when the picker did not send valid numbers. */
+  clientWidth?: number;
+  clientHeight?: number;
 }
 
 export interface PickedElement {
@@ -84,13 +87,14 @@ export function sanitizePick(raw: unknown): PickedElement | undefined {
   };
   if (html.truncated || element.outerHTMLTruncated === true) snapshot.outerHTMLTruncated = true;
 
-  return {
-    snapshot,
-    page: {
-      url: capText(raw.pageUrl, FIELD.pageUrl).text,
-      title: capText(raw.pageTitle, FIELD.pageTitle).text,
-      viewport: { width: viewport.width, height: viewport.height },
-      devicePixelRatio: raw.devicePixelRatio,
-    },
+  const page: PickedPage = {
+    url: capText(raw.pageUrl, FIELD.pageUrl).text,
+    title: capText(raw.pageTitle, FIELD.pageTitle).text,
+    viewport: { width: viewport.width, height: viewport.height },
+    devicePixelRatio: raw.devicePixelRatio,
   };
+  // Optional: only finite positive numbers are kept, anything else is dropped (P6, Q3).
+  if (finite(raw.clientWidth) && raw.clientWidth > 0) page.clientWidth = raw.clientWidth;
+  if (finite(raw.clientHeight) && raw.clientHeight > 0) page.clientHeight = raw.clientHeight;
+  return { snapshot, page };
 }

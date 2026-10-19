@@ -91,6 +91,9 @@ export const ELEMENT_MAP: FieldMap<ElementSnapshot> = {
   // D3 (spec §4.4, §8): screenshots are not redacted, redaction does not touch pixels. The P7
   // preview warns the user. Covered by a test named after D3 in tests/redact-review-fixes.test.ts.
   screenshotDataUrl: 'keep',
+  // P6 flags: a boolean and a code from a fixed list. Neither can carry page text.
+  screenshotClipped: 'keep',
+  screenshotUnavailable: 'keep',
 };
 
 /** A field counts as cut when it reaches its cap (minus one for `capText`'s surrogate step). */
