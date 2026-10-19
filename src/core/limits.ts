@@ -13,6 +13,10 @@ export const FIELD = {
   errorText: 512,
   requestBody: 8192,
   responseBody: 24_576,
+  selector: 2048,
+  outerHTML: 32_768, // raw cap for the picked element; P7 cuts to 3 KB after redaction
+  pageTitle: 512,
+  styleValue: 256,
   maxHeaders: 30,
   headerName: 64,
   headerValue: 256,

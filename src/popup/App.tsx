@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'preact/hooks';
-import type { BufferCounts, PopupToWorker, RecordingState, WorkerResponse } from '../shared/messages';
+import type { BufferCounts, ElementSummary, PopupToWorker, RecordingState, WorkerResponse } from '../shared/messages';
 import { isRestrictedUrl, RESTRICTED_MESSAGE } from '../shared/restricted';
 import { Explainer } from './Explainer';
+import { canPick, elementNote, pickLabel, showClear } from './pick-state';
 
 const EXPLAINER_KEY = 'explainerSeen';
 
@@ -27,12 +28,14 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [counts, setCounts] = useState<BufferCounts | undefined>();
   const [persistenceOk, setPersistenceOk] = useState(true);
+  const [element, setElement] = useState<ElementSummary | undefined>();
   // False until the worker answers the first GET_STATE, so a slow answer never shows a false Idle.
   const [loaded, setLoaded] = useState(false);
 
   function apply(response: WorkerResponse): void {
     if (response.ok) {
       setState(response.state);
+      setElement(response.element);
       if (response.counts) setCounts(response.counts);
       if (response.persistenceOk !== undefined) setPersistenceOk(response.persistenceOk);
     } else {
@@ -62,6 +65,22 @@ export function App() {
     setError(undefined);
     try {
       apply(await send(message));
+    } catch (caught) {
+      setError(describe(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // The popup closes only after the worker confirms the injection. A failure keeps it open.
+  async function pickElement(): Promise<void> {
+    if (tab?.id === undefined) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const response = await send({ type: 'START_PICKER', tabId: tab.id });
+      apply(response);
+      if (response.ok) window.close();
     } catch (caught) {
       setError(describe(caught));
     } finally {
@@ -109,8 +128,16 @@ export function App() {
       {state.status === 'recording' && !recordingHere ? (
         <p style={styles.hint}>Recording another tab. Start here to switch.</p>
       ) : null}
+      <button
+        style={styles.secondary}
+        disabled={!canPick({ loaded, busy, restricted, tabId: tab?.id, state })}
+        onClick={() => void pickElement()}
+      >
+        {pickLabel(element)}
+      </button>
+      {element ? <p style={styles.element}>{elementNote(element, tab?.id)}</p> : null}
       {counts ? <Counts counts={counts} /> : null}
-      {state.status !== 'recording' && counts && hasData(counts) ? (
+      {showClear(state, counts !== undefined && hasData(counts), element) ? (
         <button style={styles.secondary} disabled={busy || !loaded} onClick={() => void run({ type: 'CLEAR' })}>
           Clear
         </button>
@@ -153,5 +180,6 @@ const styles = {
   counts: { margin: '12px 0 0', fontSize: '13px', lineHeight: 1.5 },
   secondary: { marginTop: '8px' },
   hint: { margin: '8px 0 0', color: '#555', fontSize: '12px' },
+  element: { margin: '8px 0 0', fontSize: '12px', wordBreak: 'break-all' },
   error: { margin: '8px 0 0', color: '#b00020', fontSize: '13px' },
 } as const;

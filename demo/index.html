@@ -46,6 +46,36 @@
     <button id="pushState">SPA pushState</button>
     <div id="frames"></div>
 
+    <h2>Picker</h2>
+    <p>Click <strong>Pick element</strong> in the popup, then point at these.</p>
+    <a id="pickLink" href="/picker-link-should-not-open">A link: picking it must not navigate</a>
+    <button id="a:b" class="pick-target primary">Button with an odd id</button>
+    <ul class="pick-list">
+      <li class="pick-item">Same-tag sibling 1</li>
+      <li class="pick-item">Same-tag sibling 2</li>
+      <li class="pick-item">Same-tag sibling 3</li>
+    </ul>
+    <form id="pickForm" onsubmit="return false">
+      <input name="username" value="demo-user" />
+      <input name="password" type="password" value="hunter2-demo" />
+      <input type="hidden" name="csrf" value="csrf-demo-token-123" />
+    </form>
+    <!-- DOM clobbering (Phase 5.1): fields named like DOM properties. Picking this form must still work. -->
+    <form id="clobberForm" class="clobber" onsubmit="return false">
+      <input name="id" value="1" />
+      <input name="classList" />
+      <input name="children" />
+      <button type="button">Save</button>
+    </form>
+    <img name="title" alt="" width="1" height="1" />
+    <div id="pickShadowHost"></div>
+    <div id="pickTall" style="height: 1600px; border: 2px dashed #888; margin-top: 12px">
+      Tall element (taller than the viewport). Pick this to check the clip.
+    </div>
+    <div id="pickFixed" style="position: fixed; right: 12px; bottom: 12px; padding: 8px; background: #fff3cd; border: 1px solid #c9a227">
+      Fixed element
+    </div>
+
     <script>
       function boom() {
         const items = undefined;
@@ -69,6 +99,10 @@
           body: body ?? JSON.stringify({ item: 'widget' }),
         });
       }
+      const shadowHost = document.getElementById('pickShadowHost');
+      const shadowRoot = shadowHost.attachShadow({ mode: 'open' });
+      shadowRoot.innerHTML =
+        '<section><button class="shadow-btn">Shadow button A</button><button class="shadow-btn">Shadow button B</button></section>';
       const on = (id, handler) => (document.getElementById(id).onclick = handler);
 
       on('throw', () => uncaught(boom));

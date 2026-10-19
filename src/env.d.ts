@@ -1,4 +1,6 @@
-declare module '*?script' {
+// `?iife` builds one self-contained classic script, so executeScript runs it fresh each time.
+// `?script` would build an ES module behind an async loader whose body runs once per page.
+declare module '*?iife' {
   const src: string;
   export default src;
 }

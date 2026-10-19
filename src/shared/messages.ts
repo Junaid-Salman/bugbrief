@@ -35,6 +35,14 @@ export type PickerToWorker =
     }
   | { type: 'PICKER_CANCELLED' };
 
+/** What the popup shows about the picked element. The selector is already redacted for display. */
+export interface ElementSummary {
+  selector: string;
+  tabId: number;
+  pageUrl: string;
+  pickedAt: number;
+}
+
 export type WorkerResponse =
   | {
       ok: true;
@@ -42,6 +50,7 @@ export type WorkerResponse =
       capsule?: Capsule;
       markdown?: string;
       hasElement: boolean;
+      element?: ElementSummary;
       counts?: BufferCounts;
       persistenceOk?: boolean;
     }
