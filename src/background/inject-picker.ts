@@ -1,4 +1,4 @@
-import pickerScript from '../content/picker.ts?script';
+import pickerScript from '../content/picker.ts?iife';
 
 export async function injectPicker(tabId: number): Promise<void> {
   await chrome.scripting.executeScript({

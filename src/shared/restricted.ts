@@ -14,3 +14,5 @@ export function isRestrictedUrl(url: string | undefined): boolean {
   if (!url) return false;
   return RESTRICTED_SCHEMES.test(url) || RESTRICTED_STORE.test(url);
 }
+
+export const OTHER_TAB_MESSAGE = 'Recording another tab. Pick on that tab, or stop recording first.';
