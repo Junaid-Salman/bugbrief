@@ -68,6 +68,7 @@ export interface PendingRequest {
 export interface ElementSnapshot {
   selector: string;
   outerHTML: string;
+  outerHTMLTruncated?: boolean; // set by the picker when it cut outerHTML; enables the tolerant redaction forms
   styles: Record<string, string>;
   rect: { x: number; y: number; width: number; height: number };
   screenshotDataUrl: string;

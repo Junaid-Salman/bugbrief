@@ -171,3 +171,48 @@ export function foldConsole(existing: ConsoleEntry, incoming: ConsoleEntry): Con
 export function foldNetwork(existing: NetworkEntry, incoming: NetworkEntry): NetworkEntry {
   return fold(existing, incoming);
 }
+
+type Internal = { rawHashes?: string[]; seq?: number; touched?: number; relatedRequest?: number };
+
+const INTERNAL_KEYS: readonly (keyof Internal)[] = ['rawHashes', 'seq', 'touched', 'relatedRequest'];
+
+/**
+ * The only place the internal-field list lives. Keeps everything else, including
+ * `requestHeaders`, and drops `relatedRequest` too: its index is stale after a fold.
+ */
+export function stripInternal<T extends Internal>(entry: T): Omit<T, keyof Internal> {
+  const rest: Record<string, unknown> = { ...entry };
+  for (const key of INTERNAL_KEYS) delete rest[key];
+  return rest as Omit<T, keyof Internal>;
+}
+
+function refold<T extends Foldable & { fingerprint: string }>(
+  entries: T[],
+  fingerprintOf: (entry: T) => string,
+  foldPair: (existing: T, incoming: T) => T,
+): T[] {
+  const buckets = new Map<string, T>();
+  for (const entry of entries) {
+    // `fold` spreads the first entry, so the fingerprint is recomputed before bucketing.
+    const next = { ...entry, fingerprint: fingerprintOf(entry) };
+    const existing = buckets.get(next.fingerprint);
+    buckets.set(next.fingerprint, existing ? foldPair(existing, next) : next);
+  }
+  // Array.prototype.sort is stable, so equal timestamps keep input order.
+  return [...buckets.values()].sort((a, b) => a.timestamp - b.timestamp);
+}
+
+/**
+ * Spec §4.5: after redaction, entries that differ only by a secret have the same fingerprint
+ * and merge. Internal fields are stripped after the fold, because `variants` is computed from
+ * the raw hashes. Linking and summaries stay in P7.
+ */
+export function refoldRedacted(
+  consoleEntries: ConsoleEntry[],
+  network: NetworkEntry[],
+): { console: ConsoleEntry[]; network: NetworkEntry[] } {
+  return {
+    console: refold(consoleEntries, consoleFingerprint, foldConsole).map(stripInternal),
+    network: refold(network, networkFingerprint, foldNetwork).map(stripInternal),
+  };
+}
