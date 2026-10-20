@@ -13,6 +13,7 @@
   </head>
   <body>
     <h1>BugBrief Demo</h1>
+    <p>Test bench for manual checks. The three-bug demo shop is at <a href="/">/</a>.</p>
     <p>Start recording in the BugBrief popup, then click the buttons below.</p>
 
     <h2>Console</h2>
@@ -21,14 +22,14 @@
     <button id="warn">console.warn</button>
 
     <h2>Network</h2>
-    <button id="post500">POST /api/orders (500)</button>
+    <button id="post500">POST /api/lab/orders (500)</button>
     <button id="get404">GET /api/missing (404)</button>
     <button id="refused">Fetch unreachable port</button>
 
     <h2>Consolidation</h2>
     <button id="same5">Fire the same error 5×</button>
     <button id="lookalike">Look-alike pair (index 0 and 1)</button>
-    <button id="orders">POST /api/orders/123 and /456</button>
+    <button id="orders">POST /api/lab/orders/123 and /456</button>
 
     <h2>Buffers and bodies</h2>
     <button id="distinct250">Fire 250 distinct errors</button>
@@ -109,7 +110,7 @@
       on('throw', () => uncaught(boom));
       on('error', () => console.error('Demo console.error', { code: 42 }));
       on('warn', () => console.warn('Demo console.warn'));
-      on('post500', () => post('/api/orders'));
+      on('post500', () => post('/api/lab/orders'));
       on('get404', () => fetch('/api/missing'));
       on('refused', () =>
         fetch('http://localhost:9/unreachable').catch((error) => console.error('Request failed:', error.message)),
@@ -122,8 +123,8 @@
         uncaught(readIndexOne);
       });
       on('orders', () => {
-        post('/api/orders/123');
-        post('/api/orders/456');
+        post('/api/lab/orders/123');
+        post('/api/lab/orders/456');
       });
 
       on('distinct250', () => {
