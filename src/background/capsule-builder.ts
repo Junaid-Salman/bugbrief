@@ -1,4 +1,4 @@
-import { applyCaps, fileStamp, renderCapsule, type EvictedTally } from '../core/capsule';
+import { applyCaps, fileStamp, renderCapsule, showsElementPageUrl, type EvictedTally } from '../core/capsule';
 import { cyrb53, linkCauses, summarizeCapsule } from '../core/consolidate';
 import type { PickedPage } from '../core/element-model';
 import { FIELD, capText } from '../core/limits';
@@ -106,19 +106,24 @@ export function buildCapsule(deps: BuildDeps, input: BuildInput): BuildResult {
 
   const pngDataUrl = element?.snapshot.screenshotDataUrl ?? '';
   const kind = screenshotKind(element?.screenshot, pngDataUrl !== '');
+  // The element's page URL is redacted here, outside redactCapsule, so its masks are added to the count when the
+  // capsule shows that line (BL-011). Same rule as the renderer, on the same redacted operands.
+  const elementUrl = element ? redactUrl(element.page.url) : undefined;
+  const elementUrlMasks = elementUrl && showsElementPageUrl(elementUrl.text, redacted.draft.pageUrl) ? elementUrl.count : 0;
+  const redactionCount = redacted.redactionCount + elementUrlMasks;
   const markdown = renderCapsule(capsule, {
     omitted: capped.omitted,
     evicted: buffer.evicted,
     stamp: fileStamp(capturedAt),
     screenshotPending: kind === 'pending',
     // Shown only when it differs from the capsule's page, and redacted like every other URL.
-    ...(element ? { elementPageUrl: redactUrl(element.page.url).text } : {}),
+    ...(elementUrl ? { elementPageUrl: elementUrl.text } : {}),
   });
   const identity = element && pngDataUrl !== '' ? `${element.pickedAt}:${pngDataUrl.length}` : '';
   return {
     ok: true,
     markdown,
-    redactionCount: redacted.redactionCount,
+    redactionCount,
     capturedAt,
     previewHash: cyrb53(`${markdown}\n${identity}`),
     screenshot: kind,

@@ -51,6 +51,9 @@ export interface ElementSummary {
   reason?: ScreenshotReason;
 }
 
+/** Why a capsule request failed, for the popup to act on without reading the message text (BL-012). */
+export type FailureCode = 'preview-required' | 'stale-preview';
+
 export type WorkerResponse =
   | {
       ok: true;
@@ -70,4 +73,4 @@ export type WorkerResponse =
       counts?: BufferCounts;
       persistenceOk?: boolean;
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; code?: FailureCode };

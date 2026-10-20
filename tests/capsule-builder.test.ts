@@ -209,3 +209,49 @@ describe('worst case (criterion 17)', () => {
     expect(elapsed).toBeLessThan(10_000);
   }, 30_000);
 });
+
+describe('the element page URL and the redaction count (BL-011)', () => {
+  const pending = { status: 'pending' as const };
+  const withElement = (url: string, rig: Partial<Rig> = {}) =>
+    buildCapsule(deps(rigWith({ element: { snapshot: snapshot(), tabId: 3, pickedAt: 1, page: elementPage(url), screenshot: pending }, ...rig })), { userNote: '' });
+  const baseline = (rig: Partial<Rig> = {}) => buildCapsule(deps(rigWith(rig)), { userNote: '' });
+
+  it('counts the masks of an element page URL that is shown, and no secret reaches the Markdown', () => {
+    const base = baseline();
+    const shown = withElement('http://localhost:5174/other?token=SECRETQ');
+    expect(base.ok && shown.ok).toBe(true);
+    if (!base.ok || !shown.ok) return;
+    expect(shown.markdown).toContain('**Page:** `http://localhost:5174/other?token=[REDACTED]`');
+    expect(shown.redactionCount).toBe(base.redactionCount + 1);
+    expect(shown.markdown).not.toContain('SECRETQ');
+  });
+
+  it('does not count a hidden element URL twice when the element is all there is', () => {
+    const url = 'http://localhost:5174/?token=SECRETQ';
+    const element = { snapshot: snapshot(), tabId: 3, pickedAt: 1, page: elementPage(url), screenshot: pending };
+    const result = buildCapsule(deps({ console: [], network: [], userAgent: UA, element }), { userNote: '' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.redactionCount).toBe(1);
+    expect(result.markdown).not.toContain('**Page:**');
+  });
+
+  it('counts nothing for an element URL that differs only by a fragment (the line is not shown)', () => {
+    const base = baseline();
+    const same = withElement('http://localhost:5174/#section');
+    expect(base.ok && same.ok).toBe(true);
+    if (!base.ok || !same.ok) return;
+    expect(same.markdown).not.toContain('**Page:**');
+    expect(same.redactionCount).toBe(base.redactionCount);
+  });
+
+  it('counts nothing for two URLs that differ only by the secret value (both redact to the same text)', () => {
+    const recorded = { pageUrl: 'http://localhost:5174/?token=AAAA1111' };
+    const base = baseline(recorded);
+    const same = withElement('http://localhost:5174/?token=BBBB2222', recorded);
+    expect(base.ok && same.ok).toBe(true);
+    if (!base.ok || !same.ok) return;
+    expect(same.markdown).not.toContain('**Page:**');
+    expect(same.redactionCount).toBe(base.redactionCount);
+  });
+});

@@ -96,6 +96,15 @@ function withoutFragment(url: string): string {
   return hash === -1 ? url : url.slice(0, hash);
 }
 
+/**
+ * Whether the capsule shows the element's page URL: only when it differs from the capsule's own page URL, fragment
+ * ignored. Both operands are already redacted. The renderer and the builder (which counts the URL's masks, BL-011)
+ * share this one rule.
+ */
+export function showsElementPageUrl(elementPageUrl: string | undefined, capsulePageUrl: string): boolean {
+  return elementPageUrl !== undefined && withoutFragment(elementPageUrl) !== withoutFragment(capsulePageUrl);
+}
+
 function consoleTitle(entry: ConsoleEntry): string {
   return inline(entry.message.split('\n')[0] ?? '', CAPSULE.maxTitle);
 }
@@ -222,7 +231,7 @@ function elementSection(capsule: RedactedCapsule, options: RenderOptions): strin
   const crossesShadow = element.selector.includes(' >>> ');
   out.push(`**Selector:** ${codeSpan(element.selector)}${crossesShadow ? ' (not a valid CSS selector: it crosses a shadow root)' : ''}`);
   const pageUrl = options.elementPageUrl;
-  if (pageUrl !== undefined && withoutFragment(pageUrl) !== withoutFragment(capsule.pageUrl)) {
+  if (pageUrl !== undefined && showsElementPageUrl(pageUrl, capsule.pageUrl)) {
     out.push(`**Page:** ${codeSpan(pageUrl)}`);
   }
   const { x, y, width, height } = element.rect;

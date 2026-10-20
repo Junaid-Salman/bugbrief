@@ -48,6 +48,21 @@ describe('stepsView: which steps are open and where the rail stands', () => {
   it('an element alone (no recording): Record stays open and idle, Share is active', () => {
     expect(stepsView(ui({ state: { status: 'idle' }, counts: undefined, element: element() }))).toMatchObject({ open: [true, false, true], rail: [0, 2, 1] });
   });
+  it('a typed note keeps Share open with nothing captured, and only the first step is active (BL-003)', () => {
+    const view = stepsView(ui({ state: { status: 'idle' }, counts: undefined, note: 'my draft' }));
+    expect(view.open).toEqual([true, true, true]);
+    expect(view.rail).toEqual([1, 0, 0]);
+    expect(view.rail.filter((rail) => rail === 1)).toHaveLength(1);
+  });
+  it('a note after a stop with no entries behaves the same', () => {
+    expect(stepsView(ui({ counts: counts(0, 0), note: 'draft' }))).toMatchObject({ open: [true, true, true], rail: [1, 0, 0] });
+  });
+  it('without a note, nothing captured folds Share as before', () => {
+    expect(stepsView(ui({ state: { status: 'idle' }, counts: undefined, note: '' }))).toMatchObject({ open: [true, true, false], rail: [1, 0, 0] });
+  });
+  it('a note with captured data changes nothing', () => {
+    expect(stepsView(ui({ element: element(), note: 'draft' }))).toMatchObject({ open: [false, false, true], rail: [2, 2, 1] });
+  });
   it('a fresh preview completes Share; a stale one does not', () => {
     expect(stepsView(withPreview({ element: element() })).rail).toEqual([2, 2, 2]);
     expect(stepsView(withPreview({ element: element(), note: 'edited' }, { note: 'old' })).rail).toEqual([2, 2, 1]);
