@@ -37,6 +37,11 @@ export async function startPickerFlow(tabId: number, recording: RecordingState):
   log.info('picker started', { tabId });
 }
 
+/** Only our own extension pages (the popup) may ask for the capsule. A content script has `sender.tab`. */
+export function isExtensionPage(sender: chrome.runtime.MessageSender): boolean {
+  return sender.id === chrome.runtime.id && sender.tab === undefined;
+}
+
 /** Only our own picker, in the top frame of a real tab, may deliver a pick. */
 export function pickSenderTabId(sender: chrome.runtime.MessageSender): number | undefined {
   if (sender.id !== chrome.runtime.id) return undefined;

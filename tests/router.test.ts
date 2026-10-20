@@ -193,6 +193,20 @@ describe('handleMessage with an element', () => {
     expect(await handleMessage({ type: 'DOWNLOAD_CAPSULE', userNote: '', capturedAt: '2026-10-20T10:15:30.120Z', previewHash: 'x' }, popupSender)).toEqual({ ok: false, error: 'Stop recording first.' });
   });
 
+  it('refuses BUILD_CAPSULE and DOWNLOAD_CAPSULE from a content script or another extension (P7.1)', async () => {
+    const { handleMessage } = await load();
+    await handleMessage(picked, tabSender);
+    const build = { type: 'BUILD_CAPSULE' as const, userNote: '' };
+    const download = { type: 'DOWNLOAD_CAPSULE' as const, userNote: '', capturedAt: '2026-10-20T10:15:30.120Z', previewHash: 'x' };
+    const foreign = { id: 'other', tab: undefined } as chrome.runtime.MessageSender;
+    const foreignTab = { id: 'other', tab: { id: 7 }, frameId: 0 } as chrome.runtime.MessageSender;
+    for (const sender of [tabSender, foreign, foreignTab, {} as chrome.runtime.MessageSender]) {
+      expect(await handleMessage(build, sender)).toEqual({ ok: false, error: 'Not allowed.' });
+      expect(await handleMessage(download, sender)).toEqual({ ok: false, error: 'Not allowed.' });
+    }
+    expect(await handleMessage(build, popupSender)).toMatchObject({ ok: true });
+  });
+
   it('BUILD_CAPSULE builds from a picked element through the real flow', async () => {
     const { handleMessage } = await load();
     await handleMessage(picked, tabSender);

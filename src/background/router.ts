@@ -7,7 +7,7 @@ import {
   stopRecording,
 } from './debugger-session';
 import { elements, elementsReady } from './element';
-import { elementFields, receivePick, startPickerFlow } from './picker-flow';
+import { elementFields, isExtensionPage, receivePick, startPickerFlow } from './picker-flow';
 import { captureForPick, sharedCapturer } from './screenshot';
 import { reconcile } from './state';
 import { chromeDownloadDeps } from './download';
@@ -82,6 +82,7 @@ export async function handleMessage(
       }
       case 'BUILD_CAPSULE':
       case 'DOWNLOAD_CAPSULE': {
+        if (!isExtensionPage(sender)) return { ok: false, error: 'Not allowed.' };
         await ready;
         const state = await reconcile();
         await elementsReady;

@@ -73,7 +73,10 @@ export function App() {
 
   // Restore the note, and write it once more if the popup closes (the user clicked into the page).
   useEffect(() => {
-    void loadDraft(chrome.storage.session).then((saved) => setNote((current) => (current === '' ? saved : current)));
+    void loadDraft(chrome.storage.session).then((saved) => {
+      draft.seed(saved);
+      setNote((current) => (current === '' ? saved : current));
+    });
     const flush = (): void => void draft.flush();
     window.addEventListener('pagehide', flush);
     return () => window.removeEventListener('pagehide', flush);

@@ -138,6 +138,52 @@ describe('note draft (criterion 13, Q16)', () => {
     expect(storage.data.has(NOTE_KEY)).toBe(false);
     expect(await loadDraft(storage)).toBe('');
   });
+  it('a flush with no update does not overwrite the saved draft (P7.1)', async () => {
+    const storage = fakeStorage();
+    storage.data.set(NOTE_KEY, 'saved earlier');
+    const writer = createDraftWriter(storage);
+    writer.seed(await loadDraft(storage));
+    await writer.flush();
+    expect(await loadDraft(storage)).toBe('saved earlier');
+  });
+  it('a flush before any load or edit writes nothing', async () => {
+    const storage = fakeStorage();
+    storage.data.set(NOTE_KEY, 'saved earlier');
+    await createDraftWriter(storage).flush();
+    expect(storage.sets).toBe(0);
+    expect(storage.data.get(NOTE_KEY)).toBe('saved earlier');
+  });
+  it('an explicit empty edit is written', async () => {
+    const storage = fakeStorage();
+    const writer = createDraftWriter(storage);
+    await writer.update('note');
+    await writer.update('');
+    await writer.flush();
+    expect(storage.data.get(NOTE_KEY)).toBe('');
+  });
+  it('seed does not overwrite text typed before the load resolved', async () => {
+    const storage = fakeStorage();
+    const writer = createDraftWriter(storage);
+    await writer.update('typed first');
+    writer.seed('loaded late');
+    await writer.flush();
+    expect(storage.data.get(NOTE_KEY)).toBe('typed first');
+  });
+  it('seed caps the loaded text', async () => {
+    const storage = fakeStorage();
+    const writer = createDraftWriter(storage);
+    writer.seed('x'.repeat(5000));
+    await writer.flush();
+    expect((storage.data.get(NOTE_KEY) as string).length).toBe(FIELD.userNote);
+  });
+  it('a flush after Clear writes nothing', async () => {
+    const storage = fakeStorage();
+    const writer = createDraftWriter(storage);
+    await writer.update('note');
+    await writer.clear();
+    await writer.flush();
+    expect(storage.data.has(NOTE_KEY)).toBe(false);
+  });
   it('tolerates a broken storage and a non-string value', async () => {
     const broken: DraftStorage = { get: async () => { throw new Error('no'); }, set: async () => { throw new Error('no'); }, remove: async () => { throw new Error('no'); } };
     expect(await loadDraft(broken)).toBe('');
