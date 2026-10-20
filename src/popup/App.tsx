@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { FIELD } from '../core/limits';
 import type { BufferCounts, ElementSummary, PopupToWorker, RecordingState, WorkerResponse } from '../shared/messages';
-import { isRestrictedUrl, OTHER_TAB_MESSAGE, RESTRICTED_MESSAGE } from '../shared/restricted';
+import { isRestrictedUrl, OTHER_TAB_MESSAGE } from '../shared/restricted';
 import {
   SCREENSHOT_WARNING, badgeText, canCopy, canDownload, canPreview, dataSignature, isStale, previewHint,
   showsScreenshotWarning, type CapsuleUi, type PreviewState,
 } from './capsule-state';
 import { COPY, plural, recordedSummary } from './copy';
 import { Explainer } from './Explainer';
+import { topNotices } from './notices';
 import { createDraftWriter, loadDraft } from './note-draft';
 import { canPick, elementNote, pickLabel, pollWhilePending, screenshotNote, showClear } from './pick-state';
 import { stepsView, type Rail } from './steps';
@@ -246,6 +247,11 @@ export function App() {
     <main class="popup">
       <Header status={loaded ? state.status : undefined} />
       <div class="body">
+        {topNotices({ restricted }).map((notice) => (
+          <p key={notice.text} class={`msg msg--${notice.kind} box box--${notice.kind}`} role="alert">
+            {notice.text}
+          </p>
+        ))}
         <ol class="steps">
           <Step n={1} rail={view.rail[0]}>
             {view.open[0] ? (
@@ -265,7 +271,6 @@ export function App() {
                     </button>
                   )}
                 </div>
-                {restricted ? <p class="msg msg--danger">{RESTRICTED_MESSAGE}</p> : null}
                 {counts && (recording || hasEntries) ? <Counts counts={counts} /> : restricted ? null : <p class="hint">{COPY.recordHint}</p>}
                 {recording && !recordingHere ? <p class="msg msg--warn">{OTHER_TAB_MESSAGE}</p> : null}
               </section>

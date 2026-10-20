@@ -13,6 +13,11 @@ export const COPY = {
   download: 'Download',
   clear: 'Clear',
   gotIt: 'Got it',
+  explainerPoints: [
+    'It records only after you click Start, and only on that tab.',
+    'It detaches when you click Stop. Click Cancel on the banner to end it at once.',
+    'Secrets in text are redacted before anything is shown. Screenshots are not, so check yours before you share it. Nothing leaves your machine.',
+  ],
   live: 'Live',
   recordTitle: 'Record',
   recordedTitle: 'Recorded',

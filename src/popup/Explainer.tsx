@@ -15,9 +15,12 @@ export function Explainer({ onDismiss }: ExplainerProps) {
         needs it to read console errors and failed requests from the tab you choose.
       </p>
       <ul>
-        <li><span class="dot" aria-hidden="true" />It records only after you click Start, and only on that tab.</li>
-        <li><span class="dot" aria-hidden="true" />It detaches when you click Stop. Click Cancel on the banner to end it at once.</li>
-        <li><span class="dot" aria-hidden="true" />Secrets are redacted before anything is shown. Nothing leaves your machine.</li>
+        {COPY.explainerPoints.map((point) => (
+          <li key={point}>
+            <span class="dot" aria-hidden="true" />
+            {point}
+          </li>
+        ))}
       </ul>
       <button class="btn btn--primary" onClick={onDismiss}>{COPY.gotIt}</button>
     </section>

@@ -12,6 +12,10 @@ describe('README names the controls the popup really has', () => {
     expect(readme).toContain(`**${label}**`);
   });
 
+  it('says that the screenshot is not redacted, as the explainer does', () => {
+    expect(readme).toContain('**The screenshot is not redacted.**');
+  });
+
   it('shows the redaction count in the words the popup uses', () => {
     expect(readme).toContain(badgeText(7));
   });

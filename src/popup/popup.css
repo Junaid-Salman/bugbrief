@@ -471,10 +471,11 @@ body {
 }
 .explainer li {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
 }
 .explainer li .dot {
+  margin-top: 6px;
   color: var(--accent);
 }
 .explainer .btn {

@@ -2,7 +2,7 @@
 
 Hand a broken page to an AI coding agent in one click.
 
-BugBrief is a Chrome extension. You record the broken tab, point at the broken element, and it produces one Markdown report with the console errors, the failed requests and their responses, the element's HTML and styles, and a screenshot. Secrets are removed before anything is shown, so you can paste the report into Claude Code or Cursor without checking it line by line.
+BugBrief is a Chrome extension. You record the broken tab, point at the broken element, and it produces one Markdown report with the console errors, the failed requests and their responses, the element's HTML and styles, and a screenshot. Secrets in the report text are removed before anything is shown, so you can paste it into Claude Code or Cursor with far less worry. The screenshot is not redacted, and redaction is pattern based, so check the image and give the report a quick read before you share it.
 
 ![BugBrief demo: record, pick, preview with redaction, copy](docs/demo.gif)
 
