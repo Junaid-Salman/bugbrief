@@ -1,3 +1,4 @@
+import type { ScreenshotReason, ScreenshotStatus } from '../core/screenshot-model';
 import type { Capsule, ElementSnapshot } from '../core/types';
 
 export interface EvictedTally {
@@ -30,6 +31,9 @@ export type PickerToWorker =
       element: Omit<ElementSnapshot, 'screenshotDataUrl'>;
       viewport: { width: number; height: number };
       devicePixelRatio: number;
+      /** documentElement.clientWidth/clientHeight: the viewport without classic scrollbars (P6). */
+      clientWidth?: number;
+      clientHeight?: number;
       pageUrl: string;
       pageTitle: string;
     }
@@ -41,6 +45,9 @@ export interface ElementSummary {
   tabId: number;
   pageUrl: string;
   pickedAt: number;
+  screenshot: ScreenshotStatus;
+  /** Set when `screenshot` is 'unavailable'. */
+  reason?: ScreenshotReason;
 }
 
 export type WorkerResponse =

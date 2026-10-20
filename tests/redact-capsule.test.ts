@@ -77,6 +77,8 @@ function fullElement(): Required<ElementSnapshot> {
     styles: { backgroundImage: `url(x?token=${TOKEN})`, color: 'red' },
     rect: { x: 1, y: 2, width: 3, height: 4 },
     screenshotDataUrl: 'data:image/png;base64,AAAA',
+    screenshotClipped: true,
+    screenshotUnavailable: 'too-large',
   };
 }
 

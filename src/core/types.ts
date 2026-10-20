@@ -1,3 +1,5 @@
+import type { ScreenshotReason } from './screenshot-model';
+
 export interface ConsoleEntry {
   level: 'error' | 'warning';
   message: string;
@@ -72,6 +74,8 @@ export interface ElementSnapshot {
   styles: Record<string, string>;
   rect: { x: number; y: number; width: number; height: number };
   screenshotDataUrl: string;
+  screenshotClipped?: boolean; // P6: the element rect was not fully inside the viewport
+  screenshotUnavailable?: ScreenshotReason; // P6: why screenshotDataUrl is empty
 }
 
 export interface CapsuleSummary {

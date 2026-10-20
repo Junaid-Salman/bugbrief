@@ -17,6 +17,7 @@ import {
   querySelectorAllOf,
   rootNodeOf,
   shadowRootOf,
+  clientSizeOf,
   titleOf,
 } from './dom-safe';
 
@@ -204,7 +205,7 @@ export function buildPayload(
   rect: { x: number; y: number; width: number; height: number },
   win: Window,
 ): ElementPicked {
-  return {
+  const payload: ElementPicked = {
     type: 'ELEMENT_PICKED',
     element: {
       ...described,
@@ -215,4 +216,10 @@ export function buildPayload(
     pageUrl: capText(win.location.href, FIELD.pageUrl).text,
     pageTitle: capText(titleOf(win.document), FIELD.pageTitle).text,
   };
+  // The viewport without classic scrollbars lets the worker pick the size that matches the
+  // captured bitmap (P6, Q3). Layout-less environments report 0, which is left out.
+  const client = clientSizeOf(win.document);
+  if (Number.isFinite(client.width) && client.width > 0) payload.clientWidth = client.width;
+  if (Number.isFinite(client.height) && client.height > 0) payload.clientHeight = client.height;
+  return payload;
 }

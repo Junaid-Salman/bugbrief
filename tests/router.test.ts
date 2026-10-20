@@ -21,6 +21,23 @@ vi.mock('../src/background/state', () => ({ reconcile: async () => state }));
 const inject = vi.fn(async () => undefined);
 vi.mock('../src/background/inject-picker', () => ({ injectPicker: inject }));
 
+// The capture pipeline is stubbed here; tests/screenshot.test.ts covers it. One test below swaps in
+// a real pipeline with fake Chrome dependencies.
+const shot = vi.hoisted(() => ({
+  captureForPick: vi.fn(async () => undefined),
+  sharedCapturer: vi.fn(() => ({}) as never),
+  real: false,
+  deps: undefined as unknown,
+}));
+vi.mock('../src/background/screenshot', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../src/background/screenshot')>();
+  return {
+    ...original,
+    captureForPick: (capturer: never, store: never) => (shot.real ? original.captureForPick(capturer, store) : shot.captureForPick()),
+    sharedCapturer: () => (shot.real ? original.createCapturer(shot.deps as never) : shot.sharedCapturer()),
+  };
+});
+
 const store = new Map<string, unknown>();
 const EXT = 'ext';
 const tabSender = { id: EXT, tab: { id: 7 }, frameId: 0 } as chrome.runtime.MessageSender;
@@ -52,6 +69,8 @@ async function load() {
 }
 
 beforeEach(() => {
+  shot.real = false;
+  shot.captureForPick.mockClear();
   store.clear();
   state = { status: 'idle' };
   vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -122,5 +141,46 @@ describe('handleMessage with an element', () => {
     expect(inject).toHaveBeenCalledWith(7);
     await handleMessage({ type: 'START_RECORDING', tabId: 7 }, popupSender);
     expect(await handleMessage({ type: 'START_PICKER', tabId: 8 }, popupSender)).toMatchObject({ ok: false, error: expect.stringContaining('Recording another tab') });
+  });
+
+  it('runs the capture after a stored pick, and not after an ignored one (criterion 13)', async () => {
+    const { handleMessage } = await load();
+    await handleMessage(picked, popupSender);
+    expect(shot.captureForPick).not.toHaveBeenCalled();
+    await handleMessage(picked, tabSender);
+    expect(shot.captureForPick).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers ok with a pending screenshot status while the capture is stubbed', async () => {
+    const { handleMessage } = await load();
+    const response = await handleMessage(picked, tabSender);
+    expect(response).toMatchObject({ ok: true, hasElement: true, element: { screenshot: 'pending' } });
+  });
+
+  it('still answers ok when the capture rejects', async () => {
+    const { handleMessage } = await load();
+    shot.captureForPick.mockRejectedValueOnce(new Error('boom'));
+    expect(await handleMessage(picked, tabSender)).toMatchObject({ ok: true, hasElement: true });
+  });
+
+  it('end to end with fake Chrome dependencies: pick, capture, store, report', async () => {
+    shot.real = true;
+    shot.deps = {
+      getTab: async () => ({ active: true, windowId: 1, url: picked.pageUrl }),
+      capture: async () => 'data:image/png;base64,RAW',
+      decode: async () => ({ width: 1600, height: 1200, close: () => undefined }),
+      encode: async () => 'data:image/png;base64,PNGBYTES',
+      storageBytesInUse: async () => 0,
+      storageQuota: () => 10_485_760,
+      now: () => Date.now(),
+      sleep: async () => undefined,
+      setTimer: () => () => undefined,
+    };
+    const { handleMessage } = await load();
+    const response = await handleMessage(picked, tabSender);
+    expect(response).toMatchObject({ ok: true, element: { screenshot: 'captured' } });
+    expect((store.get('elementScreenshot') as { dataUrl: string }).dataUrl).toBe('data:image/png;base64,PNGBYTES');
+    expect(await handleMessage({ type: 'CLEAR' }, popupSender)).toMatchObject({ ok: true, hasElement: false });
+    expect(store.has('elementScreenshot')).toBe(false);
   });
 });

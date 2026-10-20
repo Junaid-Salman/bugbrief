@@ -108,3 +108,31 @@ describe('sanitizePick', () => {
     expect(JSON.stringify(picked)).not.toContain('extra');
   });
 });
+
+describe('sanitizePick client size (P6, criterion 12)', () => {
+  it('keeps finite positive clientWidth and clientHeight', () => {
+    const picked = sanitizePick(message({ clientWidth: 1265, clientHeight: 780 }));
+    expect(picked?.page.clientWidth).toBe(1265);
+    expect(picked?.page.clientHeight).toBe(780);
+  });
+
+  it('works without them, as an old message does', () => {
+    const picked = sanitizePick(message());
+    expect(picked).toBeDefined();
+    expect('clientWidth' in (picked?.page ?? {})).toBe(false);
+  });
+
+  it.each([0, -1, NaN, Infinity, '1265', null, {}])('drops %j', (bad) => {
+    const picked = sanitizePick(message({ clientWidth: bad, clientHeight: bad }));
+    expect(picked).toBeDefined();
+    expect('clientWidth' in (picked?.page ?? {})).toBe(false);
+    expect('clientHeight' in (picked?.page ?? {})).toBe(false);
+  });
+
+  it('never accepts screenshot fields from the picker', () => {
+    const picked = sanitizePick(message({}, { screenshotDataUrl: 'data:image/png;base64,AAAA', screenshotClipped: true, screenshotUnavailable: 'too-large' }));
+    expect(picked?.snapshot.screenshotDataUrl).toBe('');
+    expect(picked?.snapshot.screenshotClipped).toBeUndefined();
+    expect(picked?.snapshot.screenshotUnavailable).toBeUndefined();
+  });
+});

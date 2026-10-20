@@ -275,4 +275,39 @@ describe('buildPayload', () => {
     expect(payload.pageTitle).toBe('My page');
     expect(Object.keys(payload).sort()).toEqual(['devicePixelRatio', 'element', 'pageTitle', 'pageUrl', 'type', 'viewport']);
   });
+
+  it('adds clientWidth and clientHeight when the page reports a viewport without scrollbars (P6)', () => {
+    html('<p id="p">x</p>');
+    // dom-safe reads the prototype getters (a page cannot fake them), so the prototype is stubbed.
+    const width = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth');
+    const height = Object.getOwnPropertyDescriptor(Element.prototype, 'clientHeight');
+    Object.defineProperty(Element.prototype, 'clientWidth', { get: () => 1265, configurable: true });
+    Object.defineProperty(Element.prototype, 'clientHeight', { get: () => 780, configurable: true });
+    try {
+      const payload = buildPayload(describeElement($('p')), { x: 0, y: 0, width: 1, height: 1 }, window);
+      expect(payload.clientWidth).toBe(1265);
+      expect(payload.clientHeight).toBe(780);
+    } finally {
+      if (width) Object.defineProperty(Element.prototype, 'clientWidth', width);
+      if (height) Object.defineProperty(Element.prototype, 'clientHeight', height);
+    }
+  });
+
+  it('is not fooled by a page that clobbers clientWidth on documentElement', () => {
+    html('<p id="p">x</p>');
+    Object.defineProperty(document.documentElement, 'clientWidth', { value: 99999, configurable: true });
+    try {
+      const payload = buildPayload(describeElement($('p')), { x: 0, y: 0, width: 1, height: 1 }, window);
+      expect(payload.clientWidth).not.toBe(99999);
+    } finally {
+      delete (document.documentElement as unknown as Record<string, unknown>).clientWidth;
+    }
+  });
+
+  it('leaves the client size out when it is 0, as in an environment without layout', () => {
+    html('<p id="p">x</p>');
+    const payload = buildPayload(describeElement($('p')), { x: 0, y: 0, width: 1, height: 1 }, window);
+    expect('clientWidth' in payload).toBe(false);
+    expect('clientHeight' in payload).toBe(false);
+  });
 });
