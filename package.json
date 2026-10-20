@@ -1,6 +1,6 @@
 {
   "name": "bugbrief",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Package console errors, failed requests, the broken element and a screenshot into one agent-ready Markdown report.",
   "private": true,
   "license": "MIT",
