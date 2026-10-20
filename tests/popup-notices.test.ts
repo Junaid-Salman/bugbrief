@@ -64,6 +64,14 @@ describe('topNotices: messages that must stay visible whichever steps are open',
   });
 });
 
+describe('popup height', () => {
+  it('keeps the preview box small enough that the preview step fits Chrome\'s 600 px popup without a scrollbar', () => {
+    const css = readFileSync(new URL('../src/popup/popup.css', import.meta.url), 'utf8');
+    expect(Number(/\.md \{[^}]*?height: (\d+)px/.exec(css)?.[1])).toBeLessThanOrEqual(88);
+    expect(css).toMatch(/\.body \{[^}]*padding: 4px 20px 12px/);
+  });
+});
+
 /** What the store's User Data policy asks of the first-run screen (P10, Q15): name what is read, say it stays on the device, and ask for a specific agreement. */
 describe('first-run disclosure', () => {
   const everything = [COPY.explainerReadsTitle, ...COPY.explainerReads, ...COPY.explainerPoints, COPY.agree].join(' ');
