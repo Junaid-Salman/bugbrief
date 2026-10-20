@@ -85,10 +85,11 @@ describe('pollWhilePending (criterion 23)', () => {
     expect(poll).toHaveBeenCalledTimes(3);
   });
 
-  it('gives up after 10 attempts', async () => {
+  it('gives up after 20 attempts (Q13)', async () => {
     const poll = vi.fn(async () => pending);
     pollWhilePending(poll);
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 30);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 40);
+    expect(POLL_MAX_ATTEMPTS).toBe(20);
     expect(poll).toHaveBeenCalledTimes(POLL_MAX_ATTEMPTS);
   });
 

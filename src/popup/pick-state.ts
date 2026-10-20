@@ -44,10 +44,10 @@ export function screenshotNote(element: ElementSummary): string {
 }
 
 export const POLL_INTERVAL_MS = 1000;
-export const POLL_MAX_ATTEMPTS = 10;
+export const POLL_MAX_ATTEMPTS = 20;
 
 /**
- * While a screenshot is pending, asks for the state again every second, at most 10 times (Q6).
+ * While a screenshot is pending, asks for the state again every second, at most 20 times (Q6, Q13).
  * `poll` returns the latest element summary. Returns a function that stops the loop.
  */
 export function pollWhilePending(poll: () => Promise<ElementSummary | undefined>): () => void {

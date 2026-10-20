@@ -49,6 +49,7 @@ function fakeDeps(overrides: Partial<CaptureDeps> = {}): CaptureDeps {
     storageQuota: () => 10_485_760,
     now: () => 1_000_000,
     sleep: async () => undefined,
+    setTimer: () => () => undefined,
     ...overrides,
   };
 }

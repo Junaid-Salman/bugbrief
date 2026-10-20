@@ -32,6 +32,12 @@ interface Rig {
   encodeChars: { fn: (width: number, height: number) => number };
   storage: { inUse: number | 'throw'; quota: number };
   decodeError: { value?: Error };
+  /** Runs inside every fake sleep, so a test can change the world while the pipeline waits. */
+  onSleep: { fn?: (ms: number) => void };
+  timers: Array<{ callback: () => void; ms: number; cancelled: boolean }>;
+  /** Decode and encode calls that never settle, and a count of decode calls. */
+  hang: { decode: boolean; encode: boolean };
+  decodeCalls: { n: number };
 }
 
 function makeRig(): Rig {
@@ -48,6 +54,10 @@ function makeRig(): Rig {
   const encodeChars: Rig['encodeChars'] = { fn: () => 100 };
   const storage: Rig['storage'] = { inUse: 0, quota: 10_485_760 };
   const decodeError: Rig['decodeError'] = {};
+  const onSleep: Rig['onSleep'] = {};
+  const timers: Rig['timers'] = [];
+  const hang: Rig['hang'] = { decode: false, encode: false };
+  const decodeCalls: Rig['decodeCalls'] = { n: 0 };
   const deps: CaptureDeps = {
     async getTab() {
       if (tab.value === 'throw') throw new Error('tab gone');
@@ -58,12 +68,15 @@ function makeRig(): Rig {
       return captureImpl.fn(windowId);
     },
     async decode() {
+      decodeCalls.n += 1;
+      if (hang.decode) return new Promise<Bitmap>(() => undefined);
       if (decodeError.value) throw decodeError.value;
       const b: Bitmap = { ...bitmap, close: closes };
       return b;
     },
     async encode(_bitmap, crop, width, height) {
       encodes.push({ crop, width, height });
+      if (hang.encode) return new Promise<string>(() => undefined);
       return `data:image/png;base64,${'x'.repeat(encodeChars.fn(width, height))}`;
     },
     async storageBytesInUse() {
@@ -75,10 +88,19 @@ function makeRig(): Rig {
     sleep: async (ms) => {
       sleeps.push(ms);
       clock.t += ms;
+      onSleep.fn?.(ms);
+    },
+    setTimer(callback, ms) {
+      const timer = { callback, ms, cancelled: false };
+      timers.push(timer);
+      return () => {
+        timer.cancelled = true;
+      };
     },
   };
   return {
     deps, clock, sleeps, captures, encodes, closes, tab, captureImpl, encodeChars, storage, decodeError,
+    onSleep, timers, hang, decodeCalls,
     setBitmap: (width, height) => void (bitmap = { width, height }),
   };
 }
@@ -154,6 +176,149 @@ describe('tab checks (criteria 5, 21)', () => {
     let navigated = 0;
     rig.deps.getTab = async () => ({ active: true, windowId: 3, url: ++navigated === 1 ? URL_OK : 'https://example.com/next' });
     expect(await createCapturer(rig.deps).capture(request())).toEqual({ ok: false, reason: 'page-changed' });
+  });
+});
+
+describe('tab check right before every call (P6.1, H1, criteria 25, 26)', () => {
+  const quota = () => new Error('This request exceeds the MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND quota.');
+
+  it('(a) refuses when the tab goes inactive during the spacing wait of a second pick', async () => {
+    const capturer = createCapturer(rig.deps);
+    expect((await capturer.capture(request())).ok).toBe(true);
+    rig.onSleep.fn = () => void (rig.tab.value = { active: false, windowId: 3, url: URL_OK });
+    expect(await capturer.capture(request())).toEqual({ ok: false, reason: 'tab-not-active' });
+    expect(rig.captures).toHaveLength(1);
+  });
+
+  it('(b) makes no further call when the tab goes inactive during a retry sleep', async () => {
+    rig.captureImpl.fn = async () => {
+      throw quota();
+    };
+    rig.onSleep.fn = (ms) => {
+      if (ms === SCREENSHOT.retryDelayMs) rig.tab.value = { active: false, windowId: 3, url: URL_OK };
+    };
+    expect(await createCapturer(rig.deps).capture(request())).toEqual({ ok: false, reason: 'tab-not-active' });
+    expect(rig.captures).toHaveLength(1);
+  });
+
+  it('(c) uses the new windowId when the tab moved window during a retry sleep', async () => {
+    let calls = 0;
+    rig.captureImpl.fn = async () => {
+      if (++calls === 1) throw quota();
+      return 'data:image/png;base64,RAW';
+    };
+    rig.onSleep.fn = (ms) => {
+      if (ms === SCREENSHOT.retryDelayMs) rig.tab.value = { active: true, windowId: 9, url: URL_OK };
+    };
+    expect((await createCapturer(rig.deps).capture(request())).ok).toBe(true);
+    expect(rig.captures.map((c) => c.windowId)).toEqual([3, 9]);
+  });
+
+  it('(d) refuses with page-changed when the url changes during the wait', async () => {
+    const capturer = createCapturer(rig.deps);
+    await capturer.capture(request());
+    rig.onSleep.fn = () => void (rig.tab.value = { active: true, windowId: 3, url: 'https://example.com/next' });
+    expect(await capturer.capture(request())).toEqual({ ok: false, reason: 'page-changed' });
+    expect(rig.captures).toHaveLength(1);
+  });
+
+  it('(e) a refused check does not spend a rate-limit slot', async () => {
+    const capturer = createCapturer(rig.deps);
+    await capturer.capture(request());
+    rig.onSleep.fn = () => void (rig.tab.value = { active: false, windowId: 3, url: URL_OK });
+    await capturer.capture(request());
+    rig.onSleep.fn = undefined;
+    rig.tab.value = { active: true, windowId: 3, url: URL_OK };
+    rig.sleeps.length = 0;
+    expect((await capturer.capture(request())).ok).toBe(true);
+    expect(rig.sleeps).toEqual([]);
+  });
+});
+
+describe('timeout (P6.1, M2, criteria 28 to 31)', () => {
+  const settle = () => vi.waitFor(() => expect(rig.timers.length).toBeGreaterThan(0));
+  const never = () => new Promise<string>(() => undefined);
+
+  it('times out a capture that never settles, from the start of the run', async () => {
+    rig.captureImpl.fn = never;
+    const pending = createCapturer(rig.deps).capture(request());
+    await settle();
+    expect(rig.timers[0]?.ms).toBe(SCREENSHOT.captureTimeoutMs);
+    rig.timers[0]?.callback();
+    expect(await pending).toEqual({ ok: false, reason: 'capture-failed' });
+  });
+
+  it('times out a decode that never settles', async () => {
+    rig.hang.decode = true;
+    const pending = createCapturer(rig.deps).capture(request());
+    await vi.waitFor(() => expect(rig.decodeCalls.n).toBe(1));
+    rig.timers[0]?.callback();
+    expect(await pending).toEqual({ ok: false, reason: 'capture-failed' });
+  });
+
+  it('times out an encode that never settles', async () => {
+    rig.hang.encode = true;
+    const pending = createCapturer(rig.deps).capture(request());
+    await vi.waitFor(() => expect(rig.encodes.length).toBe(1));
+    rig.timers[0]?.callback();
+    expect(await pending).toEqual({ ok: false, reason: 'capture-failed' });
+  });
+
+  it('cancels the timer when the request finishes in time', async () => {
+    expect((await createCapturer(rig.deps).capture(request())).ok).toBe(true);
+    expect(rig.timers).toHaveLength(1);
+    expect(rig.timers[0]?.cancelled).toBe(true);
+  });
+
+  it('starts the timer when the run starts, not when the request is queued, and the queue survives a hang', async () => {
+    let calls = 0;
+    rig.captureImpl.fn = () => (++calls === 1 ? never() : Promise.resolve('data:image/png;base64,RAW'));
+    const capturer = createCapturer(rig.deps);
+    const first = capturer.capture(request());
+    const second = capturer.capture(request());
+    await settle();
+    expect(rig.timers).toHaveLength(1);
+    rig.timers[0]?.callback();
+    expect(await first).toEqual({ ok: false, reason: 'capture-failed' });
+    expect((await second).ok).toBe(true);
+    expect(rig.timers).toHaveLength(2);
+  });
+
+  it('an abandoned run makes no retry, decode or encode call when its capture fails late', async () => {
+    let rejectLate: (error: Error) => void = () => undefined;
+    rig.captureImpl.fn = () => new Promise<string>((_resolve, reject) => void (rejectLate = reject));
+    const pending = createCapturer(rig.deps).capture(request());
+    await settle();
+    rig.timers[0]?.callback();
+    await pending;
+    rejectLate(new Error('This request exceeds the MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND quota.'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(rig.captures).toHaveLength(1);
+    expect(rig.decodeCalls.n).toBe(0);
+    expect(rig.encodes).toEqual([]);
+  });
+
+  it('an abandoned run that gets an image late does not decode it', async () => {
+    let resolveLate: (value: string) => void = () => undefined;
+    rig.captureImpl.fn = () => new Promise<string>((resolve) => void (resolveLate = resolve));
+    const pending = createCapturer(rig.deps).capture(request());
+    await settle();
+    rig.timers[0]?.callback();
+    await pending;
+    resolveLate('data:image/png;base64,RAW');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(rig.decodeCalls.n).toBe(0);
+  });
+
+  it('logs the timeout without url, title or image data', async () => {
+    rig.captureImpl.fn = never;
+    const pending = createCapturer(rig.deps).capture(request());
+    await settle();
+    rig.timers[0]?.callback();
+    await pending;
+    const output = [...vi.mocked(console.log).mock.calls, ...vi.mocked(console.warn).mock.calls].flat().map(String).join(' ');
+    expect(output).toContain('timed out');
+    for (const secret of ['SECRETVALUE', 'Private title', 'example.com']) expect(output).not.toContain(secret);
   });
 });
 
@@ -365,6 +530,16 @@ describe('captureForPick', () => {
     const { store, captureForPick } = await load();
     const broken = { capture: async () => { throw new Error('boom'); } };
     await expect(captureForPick(broken as never, store)).resolves.toBeUndefined();
+    expect(store.summary()).toMatchObject({ screenshot: 'unavailable', reason: 'capture-failed' });
+  });
+
+  it('records capture-failed for a hung capture and answers (criterion 29)', async () => {
+    const { store, captureForPick, make } = await load();
+    rig.captureImpl.fn = () => new Promise<string>(() => undefined);
+    const done = captureForPick(make(rig.deps), store);
+    await vi.waitFor(() => expect(rig.timers.length).toBe(1));
+    rig.timers[0]?.callback();
+    await expect(done).resolves.toBeUndefined();
     expect(store.summary()).toMatchObject({ screenshot: 'unavailable', reason: 'capture-failed' });
   });
 

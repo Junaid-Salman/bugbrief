@@ -38,6 +38,8 @@ export interface CaptureDeps {
   storageQuota(): number;
   now(): number;
   sleep(ms: number): Promise<void>;
+  /** Runs `callback` after `ms` and returns a function that cancels it. */
+  setTimer(callback: () => void, ms: number): () => void;
 }
 
 export interface CaptureRequest {
@@ -49,6 +51,13 @@ export interface CaptureRequest {
 export type CaptureResult =
   | { ok: true; dataUrl: string; width: number; height: number; clipped: boolean }
   | { ok: false; reason: ScreenshotReason };
+
+/** Set when a request times out, so the abandoned run stops spending calls and CPU. */
+interface RunState {
+  cancelled: boolean;
+}
+
+type Attempt = { ok: true; dataUrl: string } | { ok: false; reason: ScreenshotReason };
 
 const QUOTA_ERROR = /MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND|exceeds[^.]*quota/i;
 
@@ -71,19 +80,28 @@ export function createCapturer(deps: CaptureDeps) {
     if (wait > 0) await deps.sleep(wait);
   }
 
-  /** captureVisibleTab, spaced from the previous call, retried on Chrome's per-second quota. */
-  async function captureWithRetry(windowId: number): Promise<string | ScreenshotReason> {
+  /**
+   * captureVisibleTab, spaced from the previous call, retried on Chrome's per-second quota. The tab
+   * is read again after every wait and right before each call, so the call never uses a stale tab
+   * or windowId (D4). A refused check makes no call and does not spend a rate-limit slot.
+   */
+  async function captureWithRetry(tabId: number, pageUrl: string, state: RunState): Promise<Attempt> {
     for (let attempt = 0; ; attempt++) {
       await waitForSlot();
+      if (state.cancelled) return { ok: false, reason: 'capture-failed' };
+      const tab = await tabProblem(tabId, pageUrl);
+      if ('reason' in tab) return { ok: false, reason: tab.reason };
+      if (state.cancelled) return { ok: false, reason: 'capture-failed' };
       lastCallAt = deps.now();
       try {
-        return await deps.capture(windowId);
+        return { ok: true, dataUrl: await deps.capture(tab.windowId) };
       } catch (error) {
+        if (state.cancelled) return { ok: false, reason: 'capture-failed' };
         if (!QUOTA_ERROR.test(error instanceof Error ? error.message : String(error))) {
           log.warn('capture failed', { error: safeMessage(error) });
-          return 'capture-failed';
+          return { ok: false, reason: 'capture-failed' };
         }
-        if (attempt >= SCREENSHOT.maxRetries) return 'rate-limited';
+        if (attempt >= SCREENSHOT.maxRetries) return { ok: false, reason: 'rate-limited' };
         await deps.sleep(SCREENSHOT.retryDelayMs);
       }
     }
@@ -103,7 +121,7 @@ export function createCapturer(deps: CaptureDeps) {
     return { windowId: tab.windowId };
   }
 
-  async function run(request: CaptureRequest): Promise<CaptureResult> {
+  async function run(request: CaptureRequest, state: RunState): Promise<CaptureResult> {
     const { rect, page } = request;
     const viewport = {
       width: page.viewport.width,
@@ -115,24 +133,23 @@ export function createCapturer(deps: CaptureDeps) {
     const problem = elementProblem(rect, viewport);
     if (problem) return { ok: false, reason: problem };
 
-    const before = await tabProblem(request.tabId, page.url);
-    if ('reason' in before) return { ok: false, reason: before.reason };
-
-    const captured = await captureWithRetry(before.windowId);
-    if (!captured.startsWith('data:')) return { ok: false, reason: captured as ScreenshotReason };
+    const captured = await captureWithRetry(request.tabId, page.url, state);
+    if (!captured.ok) return captured;
 
     // A tab switch or navigation during the capture means the image may not be the picked page.
     const after = await tabProblem(request.tabId, page.url);
     if ('reason' in after) return { ok: false, reason: after.reason };
+    if (state.cancelled) return { ok: false, reason: 'capture-failed' };
 
     let bitmap: Bitmap;
     try {
-      bitmap = await deps.decode(captured);
+      bitmap = await deps.decode(captured.dataUrl);
     } catch (error) {
       log.warn('decode failed', { error: safeMessage(error) });
       return { ok: false, reason: 'capture-failed' };
     }
     try {
+      if (state.cancelled) return { ok: false, reason: 'capture-failed' };
       const scale = pickScale(bitmap, viewport);
       if (scale.fallback) log.info('screenshot scale fallback', {});
       const crop = computeCrop(rect, scale, bitmap);
@@ -145,7 +162,11 @@ export function createCapturer(deps: CaptureDeps) {
         // Unknown usage: the fixed cap still applies.
       }
       const budget = budgetChars(deps.storageQuota(), inUse);
-      const fit = await fitToBudget((w, h) => deps.encode(bitmap, crop, w, h), { width: crop.sw, height: crop.sh }, budget);
+      const fit = await fitToBudget(
+        (w, h) => (state.cancelled ? Promise.reject(new Error('cancelled')) : deps.encode(bitmap, crop, w, h)),
+        { width: crop.sw, height: crop.sh },
+        budget,
+      );
       if (!fit.ok) return { ok: false, reason: fit.reason };
       return { ok: true, dataUrl: fit.dataUrl, width: fit.width, height: fit.height, clipped: isClipped(rect, viewport) };
     } catch (error) {
@@ -156,10 +177,32 @@ export function createCapturer(deps: CaptureDeps) {
     }
   }
 
+  /**
+   * Gives one request `captureTimeoutMs` from the moment it starts running (queue wait excluded).
+   * A call that never settles ends as `capture-failed` and the queue moves on; the abandoned run
+   * is flagged so it makes no further Chrome call, decode or encode (P6.1, M2).
+   */
+  function runWithDeadline(request: CaptureRequest): Promise<CaptureResult> {
+    const state: RunState = { cancelled: false };
+    let cancelTimer: () => void = () => undefined;
+    const deadline = new Promise<CaptureResult>((resolve) => {
+      cancelTimer = deps.setTimer(() => {
+        state.cancelled = true;
+        log.warn('screenshot timed out', { limitMs: SCREENSHOT.captureTimeoutMs });
+        resolve({ ok: false, reason: 'capture-failed' });
+      }, SCREENSHOT.captureTimeoutMs);
+    });
+    const running = run(request, state).catch((error: unknown): CaptureResult => {
+      if (!state.cancelled) log.warn('screenshot failed', { error: safeMessage(error) });
+      return { ok: false, reason: 'capture-failed' };
+    });
+    return Promise.race([running, deadline]).finally(cancelTimer);
+  }
+
   return {
     /** Captures one pick. Calls run one at a time, so spacing and memory use stay bounded. */
     capture(request: CaptureRequest): Promise<CaptureResult> {
-      const result = chain.then(() => run(request));
+      const result = chain.then(() => runWithDeadline(request));
       chain = result.catch(() => undefined);
       return result;
     },
@@ -245,6 +288,10 @@ export function createChromeDeps(): CaptureDeps {
     },
     now: () => Date.now(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    setTimer(callback, ms) {
+      const handle = setTimeout(callback, ms);
+      return () => clearTimeout(handle);
+    },
   };
 }
 

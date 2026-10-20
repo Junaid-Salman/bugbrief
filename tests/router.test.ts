@@ -174,6 +174,7 @@ describe('handleMessage with an element', () => {
       storageQuota: () => 10_485_760,
       now: () => Date.now(),
       sleep: async () => undefined,
+      setTimer: () => () => undefined,
     };
     const { handleMessage } = await load();
     const response = await handleMessage(picked, tabSender);

@@ -36,6 +36,7 @@ export const SCREENSHOT = {
   minGapMs: 550, // between captureVisibleTab calls (Chrome allows two per second)
   retryDelayMs: 600,
   maxRetries: 2,
+  captureTimeoutMs: 15_000, // one capture request, from the moment it starts running (P6.1, M2)
 } as const;
 
 export const SOFT_LIMIT_BYTES = 7 * 1024 * 1024;
