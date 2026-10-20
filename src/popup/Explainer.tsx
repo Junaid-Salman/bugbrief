@@ -1,20 +1,25 @@
+import { COPY } from './copy';
+import logoUrl from './assets/logo.png';
+
 interface ExplainerProps {
   onDismiss: () => void;
 }
 
 export function Explainer({ onDismiss }: ExplainerProps) {
   return (
-    <section>
-      <h1 style={{ margin: 0, fontSize: '18px' }}>Before you record</h1>
-      <p style={{ margin: '8px 0' }}>
-        When you start recording, Chrome shows a banner: <em>"BugBrief started debugging this browser."</em>
+    <section class="card explainer">
+      <img src={logoUrl} alt="" />
+      <h1>Before you record</h1>
+      <p>
+        When you start recording, Chrome shows a banner: <em>"BugBrief started debugging this browser."</em> BugBrief
+        needs it to read console errors and failed requests from the tab you choose.
       </p>
-      <p style={{ margin: '8px 0' }}>
-        BugBrief needs it to read console errors and failed requests from the tab you choose. It records only after
-        you click Start, only on that tab, and detaches when you click Stop. Nothing leaves your machine.
-      </p>
-      <p style={{ margin: '8px 0' }}>Click Cancel on the banner at any time to end the session.</p>
-      <button onClick={onDismiss}>Got it</button>
+      <ul>
+        <li><span class="dot" aria-hidden="true" />It records only after you click Start, and only on that tab.</li>
+        <li><span class="dot" aria-hidden="true" />It detaches when you click Stop. Click Cancel on the banner to end it at once.</li>
+        <li><span class="dot" aria-hidden="true" />Secrets are redacted before anything is shown. Nothing leaves your machine.</li>
+      </ul>
+      <button class="btn btn--primary" onClick={onDismiss}>{COPY.gotIt}</button>
     </section>
   );
 }
