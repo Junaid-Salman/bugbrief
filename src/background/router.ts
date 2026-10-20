@@ -7,7 +7,7 @@ import {
   stopRecording,
 } from './debugger-session';
 import { elements, elementsReady } from './element';
-import { elementFields, isExtensionPage, receivePick, startPickerFlow } from './picker-flow';
+import { elementFields, isExtensionPage, pickSenderTabId, receivePick, startPickerFlow } from './picker-flow';
 import { captureForPick, sharedCapturer } from './screenshot';
 import { reconcile } from './state';
 import { chromeDownloadDeps } from './download';
@@ -36,10 +36,19 @@ function realFlow() {
   );
 }
 
+/** The messages that only the extension's own popup may send. */
+const POPUP_ONLY = new Set<string>([
+  'START_RECORDING', 'STOP_RECORDING', 'GET_STATE', 'CLEAR', 'START_PICKER', 'BUILD_CAPSULE', 'DOWNLOAD_CAPSULE',
+]);
+
 export async function handleMessage(
   message: PopupToWorker | PickerToWorker,
   sender: chrome.runtime.MessageSender,
 ): Promise<WorkerResponse> {
+  // Only our own popup may send these, and only our own picker (a real tab, the top frame) may cancel a pick (BL-030).
+  const refused = { ok: false, error: 'Not allowed.' } as const;
+  if (POPUP_ONLY.has(message.type) && !isExtensionPage(sender)) return refused;
+  if (message.type === 'PICKER_CANCELLED' && pickSenderTabId(sender) === undefined) return refused;
   try {
     switch (message.type) {
       case 'START_RECORDING': {
@@ -82,7 +91,6 @@ export async function handleMessage(
       }
       case 'BUILD_CAPSULE':
       case 'DOWNLOAD_CAPSULE': {
-        if (!isExtensionPage(sender)) return { ok: false, error: 'Not allowed.' };
         await ready;
         const state = await reconcile();
         await elementsReady;

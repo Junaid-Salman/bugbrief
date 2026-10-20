@@ -18,7 +18,8 @@ const session = {
   }),
 };
 vi.mock('../src/background/debugger-session', () => session);
-vi.mock('../src/background/state', () => ({ reconcile: async () => state }));
+const reconcile = vi.fn(async () => state);
+vi.mock('../src/background/state', () => ({ reconcile }));
 const inject = vi.fn(async () => undefined);
 vi.mock('../src/background/inject-picker', () => ({ injectPicker: inject }));
 
@@ -217,3 +218,46 @@ describe('handleMessage with an element', () => {
   });
 });
 
+
+describe('sender guards on every popup message and the picker messages (BL-030)', () => {
+  const foreign = { id: 'other', tab: undefined } as chrome.runtime.MessageSender;
+  const foreignTab = { id: 'other', tab: { id: 7 }, frameId: 0 } as chrome.runtime.MessageSender;
+  const noSender = {} as chrome.runtime.MessageSender;
+  const popupMessages = [
+    { type: 'START_RECORDING' as const, tabId: 7 },
+    { type: 'STOP_RECORDING' as const },
+    { type: 'GET_STATE' as const },
+    { type: 'CLEAR' as const },
+    { type: 'START_PICKER' as const, tabId: 7 },
+  ];
+
+  beforeEach(() => {
+    for (const fn of [session.startRecording, session.stopRecording, session.clearBuffers, session.getCounts, reconcile, inject]) fn.mockClear();
+  });
+
+  it.each(popupMessages)('refuses $type from a content script, another extension and no sender, and touches nothing', async (message) => {
+    const { handleMessage } = await load();
+    for (const sender of [tabSender, foreign, foreignTab, noSender]) {
+      expect(await handleMessage(message, sender)).toEqual({ ok: false, error: 'Not allowed.' });
+    }
+    for (const fn of [session.startRecording, session.stopRecording, session.clearBuffers, session.getCounts, reconcile, inject]) {
+      expect(fn).not.toHaveBeenCalled();
+    }
+  });
+
+  it('still serves the popup', async () => {
+    const { handleMessage } = await load();
+    expect(await handleMessage({ type: 'GET_STATE' }, popupSender)).toMatchObject({ ok: true });
+    expect(await handleMessage({ type: 'START_RECORDING', tabId: 7 }, popupSender)).toMatchObject({ ok: true });
+    expect(session.startRecording).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses PICKER_CANCELLED from the popup and from foreign senders, and accepts it from our picker', async () => {
+    const { handleMessage } = await load();
+    for (const sender of [popupSender, foreign, foreignTab, noSender]) {
+      expect(await handleMessage({ type: 'PICKER_CANCELLED' }, sender)).toEqual({ ok: false, error: 'Not allowed.' });
+    }
+    expect(reconcile).not.toHaveBeenCalled();
+    expect(await handleMessage({ type: 'PICKER_CANCELLED' }, tabSender)).toMatchObject({ ok: true });
+  });
+});

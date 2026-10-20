@@ -3,7 +3,7 @@ import { FIELD } from '../core/limits';
 import type { BufferCounts, ElementSummary, PopupToWorker, RecordingState, WorkerResponse } from '../shared/messages';
 import { isRestrictedUrl, OTHER_TAB_MESSAGE } from '../shared/restricted';
 import {
-  SCREENSHOT_WARNING, badgeText, canCopy, canDownload, canPreview, dataSignature, isStale, previewHint,
+  SCREENSHOT_WARNING, badgeText, canCopy, canDownload, canPreview, dataSignature, dropsPreview, isStale, previewHint,
   showsScreenshotWarning, type CapsuleUi, type PreviewState,
 } from './capsule-state';
 import { COPY, plural, recordedSummary } from './copy';
@@ -187,7 +187,7 @@ export function App() {
         setNotice(`Download started: ${(response.files ?? []).join(', ')}`);
       } else {
         setError(response.error);
-        if (response.error.includes('Preview')) setPreview(undefined); // the data changed: a new Preview is needed
+        if (dropsPreview(response.code)) setPreview(undefined); // the preview is missing or out of date: a new Preview is needed
       }
     } catch (caught) {
       setError(describe(caught));
@@ -231,6 +231,7 @@ export function App() {
   const stale = isStale(ui);
   const hint = previewHint(ui);
   const view = stepsView(ui);
+  const notices = topNotices({ restricted, persistenceOk, error, notice });
   const hasEntries = counts !== undefined && hasData(counts);
   const canStart = !busy && loaded && !restricted && tab?.id !== undefined;
   const pickable = canPick({ loaded, busy, restricted, tabId: tab?.id, state });
@@ -245,13 +246,19 @@ export function App() {
 
   return (
     <main class="popup">
-      <Header status={loaded ? state.status : undefined} />
+      <div class="top">
+        <Header status={loaded ? state.status : undefined} />
+        {notices.length > 0 ? (
+          <div class="notices">
+            {notices.map((item) => (
+              <p key={item.text} class={`msg msg--${item.kind} box box--${item.kind}`} role={item.kind === 'ok' ? 'status' : 'alert'}>
+                {item.text}
+              </p>
+            ))}
+          </div>
+        ) : null}
+      </div>
       <div class="body">
-        {topNotices({ restricted }).map((notice) => (
-          <p key={notice.text} class={`msg msg--${notice.kind} box box--${notice.kind}`} role="alert">
-            {notice.text}
-          </p>
-        ))}
         <ol class="steps">
           <Step n={1} rail={view.rail[0]}>
             {view.open[0] ? (
@@ -375,9 +382,6 @@ export function App() {
             )}
           </Step>
         </ol>
-        {notice ? <p class="msg msg--ok" role="status">{notice}</p> : null}
-        {!persistenceOk ? <p class="msg msg--danger box box--danger">{COPY.persistenceOff}</p> : null}
-        {error ? <p class="msg msg--danger" role="alert">{error}</p> : null}
       </div>
     </main>
   );

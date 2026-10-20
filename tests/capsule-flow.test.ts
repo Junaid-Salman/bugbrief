@@ -88,24 +88,24 @@ describe('download (criterion 12)', () => {
     const p = await preview(rig);
     expect(await rig.flow.download({ type: 'DOWNLOAD_CAPSULE', userNote: '', ...p }, recording, BASE)).toEqual({ ok: false, error: RECORDING_MESSAGE });
     for (const bad of [{ capturedAt: 'yesterday', previewHash: p.previewHash }, { capturedAt: p.capturedAt, previewHash: 5 as never }]) {
-      expect(await rig.flow.download({ type: 'DOWNLOAD_CAPSULE', userNote: '', ...bad }, idle, BASE)).toEqual({ ok: false, error: 'Preview first.' });
+      expect(await rig.flow.download({ type: 'DOWNLOAD_CAPSULE', userNote: '', ...bad }, idle, BASE)).toEqual({ ok: false, error: 'Preview first.', code: 'preview-required' });
     }
     expect(rig.calls).toEqual([]);
   });
   it('refuses when the note changed after the preview', async () => {
     const rig = make();
     const p = await preview(rig, 'one');
-    expect(await rig.flow.download({ type: 'DOWNLOAD_CAPSULE', userNote: 'two', capturedAt: p.capturedAt, previewHash: p.previewHash }, idle, BASE)).toEqual({ ok: false, error: STALE_MESSAGE });
+    expect(await rig.flow.download({ type: 'DOWNLOAD_CAPSULE', userNote: 'two', capturedAt: p.capturedAt, previewHash: p.previewHash }, idle, BASE)).toEqual({ ok: false, error: STALE_MESSAGE, code: 'stale-preview' });
     expect(rig.calls).toEqual([]);
   });
   it('refuses when the element was re-picked with identical Markdown but a different image', async () => {
     const rig = make({ element: picked(), pickedAt: 1, status: 'captured' });
     const p = await preview(rig);
     rig.state.pickedAt = 2;
-    expect(await rig.flow.download({ type: 'DOWNLOAD_CAPSULE', userNote: '', capturedAt: p.capturedAt, previewHash: p.previewHash }, idle, BASE)).toEqual({ ok: false, error: STALE_MESSAGE });
+    expect(await rig.flow.download({ type: 'DOWNLOAD_CAPSULE', userNote: '', capturedAt: p.capturedAt, previewHash: p.previewHash }, idle, BASE)).toEqual({ ok: false, error: STALE_MESSAGE, code: 'stale-preview' });
     rig.state.pickedAt = 1;
     rig.state.element = picked({ screenshotDataUrl: 'data:image/png;base64,AAAAAAAA' });
-    expect(await rig.flow.download({ type: 'DOWNLOAD_CAPSULE', userNote: '', capturedAt: p.capturedAt, previewHash: p.previewHash }, idle, BASE)).toEqual({ ok: false, error: STALE_MESSAGE });
+    expect(await rig.flow.download({ type: 'DOWNLOAD_CAPSULE', userNote: '', capturedAt: p.capturedAt, previewHash: p.previewHash }, idle, BASE)).toEqual({ ok: false, error: STALE_MESSAGE, code: 'stale-preview' });
     expect(rig.calls).toEqual([]);
   });
   it('refuses while the screenshot is still being captured', async () => {

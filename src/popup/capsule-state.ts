@@ -1,4 +1,4 @@
-import type { BufferCounts, ElementSummary, RecordingState } from '../shared/messages';
+import type { BufferCounts, ElementSummary, FailureCode, RecordingState } from '../shared/messages';
 
 export const SCREENSHOT_WARNING = 'Screenshot is not redacted. Check it before sharing.';
 export const STALE_NOTE = 'Preview is out of date. Preview again.';
@@ -80,4 +80,9 @@ export function previewHint(ui: CapsuleUi): string | undefined {
   if (!hasData(ui)) return 'Nothing to report yet. Record a bug or pick an element.';
   if (isStale(ui)) return STALE_NOTE;
   return undefined;
+}
+
+/** A failed Download means the shown preview is missing or out of date, so it must be dropped (BL-012). */
+export function dropsPreview(code: FailureCode | undefined): boolean {
+  return code === 'preview-required' || code === 'stale-preview';
 }

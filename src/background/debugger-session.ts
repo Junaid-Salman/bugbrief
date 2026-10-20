@@ -206,6 +206,9 @@ export function startRecording(tabId: number): Promise<RecordingState> {
  */
 async function readPageMetadata(tabId: number): Promise<void> {
   const token = buffer.generation();
+  // The URL the values are read for. Taken before the read: a navigation while it is in flight must not
+  // label the old page's title with the new page's URL (BL-010).
+  const forUrl = buffer.getState().pageUrl ?? '';
   let value: unknown;
   try {
     const result = (await withTimeout(
@@ -219,7 +222,7 @@ async function readPageMetadata(tabId: number): Promise<void> {
   }
   if (!buffer.isCurrent(token)) return;
   buffer.mutate((state) => {
-    const next = sanitizePageMetadata(value, state.pageUrl ?? '');
+    const next = sanitizePageMetadata(value, forUrl);
     const merged = mergePageMetadata(state.page, next);
     if (merged) state.page = merged;
   });

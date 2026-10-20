@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FIELD } from '../src/core/limits';
 import {
-  SCREENSHOT_WARNING, STALE_NOTE, badgeText, canCopy, canDownload, canPreview, dataSignature, hasData, isStale,
+  SCREENSHOT_WARNING, STALE_NOTE, badgeText, canCopy, canDownload, canPreview, dataSignature, dropsPreview, hasData, isStale,
   previewHint, showsScreenshotWarning, type CapsuleUi, type PreviewState,
 } from '../src/popup/capsule-state';
 import { NOTE_KEY, cap, createDraftWriter, loadDraft, type DraftStorage } from '../src/popup/note-draft';
@@ -192,5 +192,15 @@ describe('note draft (criterion 13, Q16)', () => {
     const odd = fakeStorage();
     odd.data.set(NOTE_KEY, { not: 'a string' });
     expect(await loadDraft(odd)).toBe('');
+  });
+});
+
+describe('dropsPreview (BL-012): which failures mean the shown preview can no longer be used', () => {
+  it('is true for a missing or stale preview', () => {
+    expect(dropsPreview('preview-required')).toBe(true);
+    expect(dropsPreview('stale-preview')).toBe(true);
+  });
+  it('is false for every other failure, whatever its text says', () => {
+    expect(dropsPreview(undefined)).toBe(false);
   });
 });

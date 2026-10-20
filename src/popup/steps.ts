@@ -35,9 +35,10 @@ export function stepsView(ui: CapsuleUi): StepsView {
     else { rail2 = 2; open2 = false; }
   }
 
-  const open3 = hasData || recording;
+  // A typed note keeps Share open even with nothing captured (BL-003). It does not make Share the active step.
+  const open3 = hasData || recording || ui.note !== '';
   let rail3: Rail;
-  if (recording || pending || !open3) rail3 = 0;
+  if (recording || pending || !hasData) rail3 = 0;
   else rail3 = ui.preview !== undefined && !isStale(ui) ? 2 : 1;
 
   return { rail: [rail1, rail2, rail3], open: [open1, open2, open3] };

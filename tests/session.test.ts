@@ -809,6 +809,24 @@ describe('page metadata at Start and Stop (P7, criterion 9)', () => {
     expect(session.getBufferState().page).toEqual({ title: '', viewport: { width: 1280, height: 720 }, forUrl: 'http://localhost:5174/next' });
   });
 
+  it('stamps a title read for one page with that page URL even when the page navigates during the read (BL-010)', async () => {
+    const { session, env } = await boot();
+    let release: () => void = () => undefined;
+    env.behavior.metadataGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = session.startRecording(7);
+    await vi.waitFor(() => expect(env.sent.some((call) => call.method === 'Runtime.evaluate')).toBe(true));
+    await session.handleEvent(source, 'Page.frameNavigated', { frame: { id: 'MAIN', url: 'http://localhost:5174/next' } });
+    release();
+    await started;
+    const buffer = session.getBufferState();
+    expect(buffer.pageUrl).toBe('http://localhost:5174/next');
+    expect(buffer.page?.forUrl).toBe('http://localhost:5174/');
+    const { pageFor } = await import('../src/core/page-metadata');
+    expect(pageFor(buffer.page, buffer.pageUrl)).toBeUndefined();
+  });
+
   it('keeps the Start values when the recording ends by Cancel or a closed tab', async () => {
     const { session } = await boot();
     await session.startRecording(7);

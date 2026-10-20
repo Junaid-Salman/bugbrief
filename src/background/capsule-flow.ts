@@ -1,4 +1,4 @@
-import type { PopupToWorker, RecordingState, WorkerResponse } from '../shared/messages';
+import type { FailureCode, PopupToWorker, RecordingState, WorkerResponse } from '../shared/messages';
 import { buildCapsule, type BuildDeps, type BuildResult } from './capsule-builder';
 import { downloadCapsule, type DownloadDeps } from './download';
 import { fileStamp } from '../core/capsule';
@@ -14,8 +14,8 @@ type Ok = Extract<WorkerResponse, { ok: true }>;
 /** The fields the router adds from its own state, so the flow stays independent of the buffer. */
 type Base = Pick<Ok, 'state' | 'hasElement' | 'element' | 'counts' | 'persistenceOk'>;
 
-function failure(error: string): WorkerResponse {
-  return { ok: false, error };
+function failure(error: string, code?: FailureCode): WorkerResponse {
+  return code ? { ok: false, error, code } : { ok: false, error };
 }
 
 function guard(state: RecordingState): string | undefined {
@@ -48,12 +48,12 @@ export function createCapsuleFlow(deps: BuildDeps, downloads: DownloadDeps) {
       const refused = guard(state);
       if (refused) return failure(refused);
       if (typeof message.capturedAt !== 'string' || !ISO.test(message.capturedAt) || typeof message.previewHash !== 'string') {
-        return failure('Preview first.');
+        return failure('Preview first.', 'preview-required');
       }
       const result = buildCapsule(deps, { userNote: noteOf(message), capturedAt: message.capturedAt });
       if (!result.ok) return failure(result.error);
       // A re-pick, Clear or a changed note between Preview and Download is detected, not silently saved.
-      if (result.previewHash !== message.previewHash) return failure(STALE_MESSAGE);
+      if (result.previewHash !== message.previewHash) return failure(STALE_MESSAGE, 'stale-preview');
       if (result.screenshot === 'pending') return failure('The screenshot is still being captured. Try again in a moment.');
       const saved = await downloadCapsule(downloads, {
         markdown: result.markdown, pngDataUrl: result.pngDataUrl, stamp: fileStamp(result.capturedAt),

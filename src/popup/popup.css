@@ -79,10 +79,19 @@ body {
 }
 
 /* Header stays in view while the body scrolls inside Chrome's popup height */
-.header {
+.top {
   position: sticky;
   top: 0;
   z-index: 2;
+  background: var(--bg);
+}
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 20px 8px;
+}
+.header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -371,6 +380,9 @@ body {
 }
 .box--danger {
   background: var(--danger-bg);
+}
+.box--ok {
+  background: var(--ok-bg);
 }
 .box--warn {
   display: flex;
