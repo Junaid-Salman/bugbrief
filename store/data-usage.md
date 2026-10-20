@@ -25,4 +25,4 @@ The ones ticked are what the page can show or send while it is recorded. The pri
 No.
 
 ## Privacy policy URL
-`https://<vercel-project>.vercel.app/privacy` (from `site/privacy.html`; fill in after the Vercel deploy).
+`https://bugbrief-bice.vercel.app/privacy` (from `site/privacy.html`, deployed with `npx vercel deploy ./site --prod`).

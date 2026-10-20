@@ -109,3 +109,10 @@ describe('store/ documents', () => {
     expect(steps).toContain('I understand, continue');
   });
 });
+
+describe('privacy policy URL', () => {
+  it('is the deployed address in the data-usage answers', () => {
+    expect(read('store/data-usage.md')).toContain('https://bugbrief-bice.vercel.app/privacy');
+    expect(read('store/data-usage.md')).not.toContain('<vercel-project>');
+  });
+});
