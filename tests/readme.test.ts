@@ -90,3 +90,31 @@ describe('README Testing section and the manual checklist (P9)', () => {
     for (const local of ['BACKLOG.md', 'Plans/', 'Reviews/', 'Project Files/']) expect(checklist, local).not.toContain(local);
   });
 });
+
+describe('what the README says about data and redaction (P10, store policy)', () => {
+  it('uses the canonical redaction sentence', () => {
+    expect(readme).toContain('BugBrief masks secrets it recognizes, such as tokens, keys, passwords and email addresses. It can miss others, and the screenshot is not masked, so read the report before you share it.');
+  });
+
+  it('names what is read, says it stays on the device, and carries the Limited Use statement', () => {
+    expect(readme).toContain('**What BugBrief reads.**');
+    for (const kind of ['page content', 'a screenshot of it', 'the addresses (URLs)', 'requests and responses', 'console messages', 'personal data', 'sign-in tokens', 'never sent anywhere']) {
+      expect(readme, kind).toContain(kind);
+    }
+    expect(readme).toContain('**Limited Use.**');
+    expect(readme).toContain('Chrome Web Store User Data Policy, including the Limited Use requirements');
+  });
+
+  it('says that keys with no recognizable name or format may not be masked', () => {
+    expect(readme).toContain('Keys with no recognizable name or format may not be masked, for example some AI provider keys.');
+  });
+
+  it('uses none of the banned redaction claims', () => {
+    expect(readme).not.toMatch(/removes all|removed before anything is shown|redacted before anything is shown|common secrets/i);
+  });
+
+  it('is not the first-run label the checklist asks you to click: the checklist uses the agreement button', () => {
+    expect(root('docs/e2e-checklist.md')).toContain(`**${COPY.agree}**`);
+  });
+});
+

@@ -40,7 +40,7 @@ Open `http://localhost:5174/?token=demo-session-3b7f1c9e2a`. The page should loo
 
 | # | Do | Expect | Result |
 |---|---|---|---|
-| A1 | Click the BugBrief icon the first time | The first-run explainer. Its third point says screenshots are **not** redacted. Click **Got it** | |
+| A1 | Click the BugBrief icon the first time | The first-run disclosure. It lists what BugBrief reads (page content, a screenshot, URLs, request and response contents, console messages, anything the page shows or sends), says it all stays on your device, and says screenshots are **not** masked. Read the list of what BugBrief reads and click **I understand, continue** | |
 | A2 | Click **Start recording** | Chrome shows "BugBrief started debugging this browser". The popup shows Recording | |
 | A3 | Click the page, press `F5` to reload | The page reloads | |
 | A4 | Open the popup | Record shows **2 errors** and **1 failed request** (the `TypeError` and the page's `console.error`; the `POST /api/orders` that returns 500). Write down the exact counts: ______ | |

@@ -2,7 +2,7 @@
 
 Hand a broken page to an AI coding agent in one click.
 
-BugBrief is a Chrome extension. You record the broken tab, point at the broken element, and it produces one Markdown report with the console errors, the failed requests and their responses, the element's HTML and styles, and a screenshot. Secrets in the report text are removed before anything is shown, so you can paste it into Claude Code or Cursor with far less worry. The screenshot is not redacted, and redaction is pattern based, so check the image and give the report a quick read before you share it.
+BugBrief is a Chrome extension. You record the broken tab, point at the broken element, and it produces one Markdown report with the console errors, the failed requests and their responses, the element's HTML and styles, and a screenshot. BugBrief masks secrets it recognizes, such as tokens, keys, passwords and email addresses. It can miss others, and the screenshot is not masked, so read the report before you share it.
 
 ![BugBrief demo: record, pick, preview with redaction, copy](docs/demo.gif)
 
@@ -87,6 +87,10 @@ BugBrief asks for no host permissions and loads no remote code.
 
 No data leaves your machine. BugBrief has no server, no account, no analytics and no network requests of its own. The recording lives in `chrome.storage.session`, which Chrome clears when the browser closes. The report goes only to your clipboard or to files you download.
 
+**What BugBrief reads.** From the tab you record, and only after you click **Start recording**: the page content and the element you pick, a screenshot of it, the addresses (URLs) the page uses, the contents of its requests and responses, and console messages. That can include personal data and sign-in tokens that the page shows or sends. All of it stays on your device and is never sent anywhere.
+
+**Limited Use.** The use of information BugBrief receives through Chrome extension APIs adheres to the Chrome Web Store User Data Policy, including the Limited Use requirements. The data is used only to build the report you ask for. It is not transferred to anyone, not used for advertising or credit decisions, and no person reads it.
+
 Redaction runs before anything reaches the popup, your clipboard or a file. It covers query parameters in page and request URLs, JSON bodies, console text, element HTML (including password and hidden input values) and email addresses. Request headers are not put in the report at all. **The screenshot is not redacted.** The preview warns you, and you should look at it before you share it. Redaction is on by default and cannot be turned off. Always read the report before you share it.
 
 ## Known limitations
@@ -98,7 +102,7 @@ Redaction runs before anything reaches the popup, your clipboard or a file. It c
 - BugBrief cannot run on `chrome://` pages, other extensions' pages, `view-source:` pages or the Chrome Web Store.
 - Chrome shows "BugBrief started debugging this browser" while recording. Clicking **Cancel** on it ends the recording and keeps what was captured.
 - If another extension or a stale session already holds the tab, Chrome refuses to attach. Disable other debugging extensions and try again.
-- Redaction is pattern based. It can miss a secret it does not recognize.
+- Redaction is pattern based. Keys with no recognizable name or format may not be masked, for example some AI provider keys. Read the report before you share it.
 
 ## Reporting a redaction leak
 

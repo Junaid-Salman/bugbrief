@@ -64,21 +64,50 @@ describe('topNotices: messages that must stay visible whichever steps are open',
   });
 });
 
-describe('explainer privacy wording', () => {
-  const lines = COPY.explainerPoints;
+/** What the store's User Data policy asks of the first-run screen (P10, Q15): name what is read, say it stays on the device, and ask for a specific agreement. */
+describe('first-run disclosure', () => {
+  const everything = [COPY.explainerReadsTitle, ...COPY.explainerReads, ...COPY.explainerPoints, COPY.agree].join(' ');
+  const source = (name: string) => readFileSync(new URL(`../src/popup/${name}`, import.meta.url), 'utf8');
 
-  it('has the three points', () => expect(lines).toHaveLength(3));
-
-  it('says that screenshots are not redacted', () => {
-    expect(lines.join(' ')).toContain('Screenshots are not');
+  it('names every kind of data BugBrief reads from the recorded tab', () => {
+    const reads = COPY.explainerReads.join(' ').toLowerCase();
+    for (const kind of ['page content', 'screenshot', 'addresses (urls)', 'requests and responses', 'console', 'personal data', 'sign-in tokens']) {
+      expect(reads, kind).toContain(kind);
+    }
   });
 
-  it('never claims that all secrets are redacted', () => {
-    for (const line of lines) expect(line).not.toMatch(/^Secrets are redacted/);
-    expect(lines.join(' ')).toContain('Secrets in text are redacted');
+  it('says that the data stays on the device and is never sent anywhere', () => {
+    const points = COPY.explainerPoints.join(' ');
+    expect(points).toContain('stays on your device');
+    expect(points).toContain('never sent anywhere');
   });
 
-  it('keeps the promise that nothing leaves the machine', () => {
-    expect(lines.join(' ')).toContain('Nothing leaves your machine');
+  it('uses the canonical redaction wording and says the screenshot is not masked', () => {
+    const points = COPY.explainerPoints.join(' ');
+    expect(points).toContain('BugBrief masks secrets it recognizes, such as tokens, keys, passwords and email addresses.');
+    expect(points).toContain('It can miss others');
+    expect(points).toContain('the screenshot is not masked');
+    expect(points).toContain('read the report before you share it');
+  });
+
+  it('uses none of the banned redaction claims', () => {
+    expect(everything).not.toMatch(/removes all|removed before anything is shown|redacted before anything is shown|common secrets/i);
+  });
+
+  it('asks for an explicit agreement, not a bare "Got it"', () => {
+    expect(COPY.agree).toBe('I understand, continue');
+    expect(source('Explainer.tsx')).toContain('COPY.agree');
+    expect(source('Explainer.tsx')).not.toContain('Got it');
+  });
+
+  it('keeps the whole popup behind the agreement until the user clicks it', () => {
+    const app = source('App.tsx');
+    expect(app.indexOf('if (!explainerSeen)')).toBeGreaterThan(0);
+    expect(app.indexOf('if (!explainerSeen)')).toBeLessThan(app.indexOf('const restricted ='));
+    expect(app).toContain('chrome.storage.local.set({ [EXPLAINER_KEY]: true })');
+  });
+
+  it('still has three points: scope, local storage and redaction', () => {
+    expect(COPY.explainerPoints).toHaveLength(3);
   });
 });
