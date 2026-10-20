@@ -104,6 +104,20 @@ Redaction runs before anything reaches the popup, your clipboard or a file. It c
 
 If a secret reaches a report, please [open an issue](https://github.com/Junaid-Salman/bugbrief/issues) and describe the field it was in, but not the secret itself. Every confirmed leak becomes a regression test.
 
+## Testing
+
+BugBrief is tested in three ways. None of them uses a paid service or an AI model.
+
+**Automated: `npm test`** (Vitest, more than 1,100 tests). It covers redaction (including a large corpus of real secret formats and look-alikes that must not be masked), error consolidation, the buffer, the picker, the screenshot, the capsule and the popup. Three groups are built on the demo shop:
+
+- **Capsule sufficiency (no AI agent run).** The tests load the demo shop in a simulated browser, build a capsule through the real pipeline and check that it points at the right place: the stack frame resolves to the line that throws, the request resolves to the route and its handler, and the error text, request body and element are all present.
+- **Leaks.** None of the demo's fake secrets (the page token, the bearer value, the email, the form value) reaches the report, and the redaction count is above zero.
+- **`npm run demo:verify [folder]`.** Loads the demo shop in jsdom against that folder's own server and checks that the bugs are fixed: no error on load, an order request that succeeds with the right total, and no console error. It is red on the demo as shipped and green on a correct fix, so you can use it on your own fix too.
+
+**Manual, in Chrome: [`docs/e2e-checklist.md`](docs/e2e-checklist.md).** What only a real browser can show: the extension loaded and used on the demo shop, a real report, the screenshot crop, the debugger banner, stopping the extension's worker mid-recording, closing the tab, and the popup in every state. It has a results table to fill in.
+
+**What is not tested.** No test runs an AI agent, so nothing here proves that an agent will fix the bugs from a report. The sufficiency tests show that the report holds what a developer or an agent needs. The checklist ends with an optional step if you want to try your own agent on a real report.
+
 ## Development
 
 ```bash
