@@ -15,6 +15,7 @@
     "build": "tsc --noEmit && vite build",
     "demo": "node demo/server.mjs",
     "demo:reset": "node scripts/demo-reset.mjs",
+    "demo:verify": "node scripts/demo-verify.mjs",
     "build:debug": "tsc --noEmit && vite build --mode debug"
   },
   "repository": {
