@@ -1,5 +1,6 @@
 import type { Protocol } from 'devtools-protocol';
 import {
+  type BufferState,
   countsOf,
   getPending,
   insertConsole,
@@ -9,6 +10,7 @@ import {
   takePending,
 } from '../core/buffer-model';
 import { FIELD, capText } from '../core/limits';
+import { PAGE_METADATA_EXPRESSION, mergePageMetadata, sanitizePageMetadata } from '../core/page-metadata';
 import type { NetworkEntry, PendingRequest, RawConsoleEntry } from '../core/types';
 import type { BufferCounts, RecordingState } from '../shared/messages';
 import { isRestrictedAttachError, isRestrictedUrl, RESTRICTED_MESSAGE } from '../shared/restricted';
@@ -181,6 +183,7 @@ async function startRecordingLocked(tabId: number): Promise<RecordingState> {
     if (tab.url) buffer.mutate((current) => void (current.pageUrl = capText(tab.url as string, FIELD.pageUrl).text));
     await Promise.all([resetting, setting]);
     await seedMainFrame(tabId, tab.url);
+    await readPageMetadata(tabId); // never throws; bounded to METADATA_TIMEOUT_MS
     log.info('recording started', { tabId, protocolVersion: version });
     return recording;
   } catch (error) {
@@ -194,23 +197,33 @@ export function startRecording(tabId: number): Promise<RecordingState> {
   return runExclusive(() => startRecordingLocked(tabId));
 }
 
-const PAGE_METADATA_EXPRESSION = `JSON.stringify({
-  url: location.href,
-  title: document.title,
-  userAgent: navigator.userAgent,
-  viewport: { width: innerWidth, height: innerHeight }
-})`;
-
+/**
+ * Reads the page title and viewport and stores them, unless the session ended or restarted while
+ * the read was in flight. `withTimeout` does not cancel the underlying command, so a read can
+ * resolve after the flush, after Clear or after the next Start: the buffer generation taken
+ * before the read is the session token, and a late value is dropped (P7, criterion 9). The read
+ * never throws, so it cannot abort Start or delay Stop beyond its own bound.
+ */
 async function readPageMetadata(tabId: number): Promise<void> {
+  const token = buffer.generation();
+  let value: unknown;
   try {
-    const result = (await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
-      expression: PAGE_METADATA_EXPRESSION,
-      returnByValue: true,
-    })) as Protocol.Runtime.EvaluateResponse;
-    log.debug('page metadata', { value: result.result.value });
+    const result = (await withTimeout(
+      chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', { expression: PAGE_METADATA_EXPRESSION, returnByValue: true }),
+      METADATA_TIMEOUT_MS,
+    )) as Protocol.Runtime.EvaluateResponse;
+    value = result.exceptionDetails ? undefined : result.result.value;
   } catch (error) {
     log.warn('could not read page metadata', { error: errorMessage(error) });
+    return;
   }
+  if (!buffer.isCurrent(token)) return;
+  buffer.mutate((state) => {
+    const next = sanitizePageMetadata(value, state.pageUrl ?? '');
+    const merged = mergePageMetadata(state.page, next);
+    if (merged) state.page = merged;
+  });
+  log.debug('page metadata', { hasTitle: buffer.getState().page?.title !== '', hasViewport: buffer.getState().page?.viewport !== undefined });
 }
 
 async function logSummary(reason: FinishReason): Promise<void> {
@@ -270,8 +283,8 @@ function insertUnfinishedMarked(): void {
 async function stopSequence(tabId: number): Promise<void> {
   const drained = await drain(inFlight, DRAIN_TIMEOUT_MS);
   if (!drained) log.warn('drain timed out', { inFlight: inFlight.size });
-  // Only feeds a debug log today. P7 will capture the page details for the capsule.
-  if (debugEnabled()) await withTimeout(readPageMetadata(tabId), METADATA_TIMEOUT_MS).catch(() => undefined);
+  // The capsule needs the page title and viewport in every build, so the read is not debug-only.
+  await readPageMetadata(tabId);
   await withTimeout(chrome.debugger.detach({ tabId }), DETACH_TIMEOUT_MS).catch(() => undefined);
 }
 
@@ -501,3 +514,9 @@ export async function handleTabRemoved(tabId: number): Promise<void> {
   if (state.status !== 'recording' || state.tabId !== tabId) return;
   await finishSession('tab_removed');
 }
+
+/** The live buffer, for building a capsule. Callers must copy what they keep and never mutate it. */
+export function getBufferState(): BufferState {
+  return buffer.getState();
+}
+

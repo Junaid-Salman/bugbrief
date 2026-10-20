@@ -4,6 +4,9 @@ type Listener = (...args: unknown[]) => void;
 
 interface Behavior {
   hangEvaluate: boolean;
+  /** The value the page-metadata expression returns (P7). */
+  metadata: unknown;
+  metadataGate?: Promise<void>;
   hangDetach: boolean;
   hangBody: boolean;
   hangMethods: string[];
@@ -24,6 +27,7 @@ function installChrome() {
   const postData = new Map<string, { postData: string; base64Encoded: boolean }>();
   const behavior: Behavior = {
     hangEvaluate: false,
+    metadata: { title: 'Demo shop', width: 1280, height: 720 },
     hangDetach: false,
     hangBody: false,
     hangMethods: [],
@@ -97,6 +101,10 @@ function installChrome() {
         }
         if (method === 'Runtime.evaluate') {
           if (behavior.hangEvaluate) await new Promise(() => undefined);
+          if (String((params as { expression?: string } | undefined)?.expression).includes('innerWidth')) {
+            if (behavior.metadataGate) await behavior.metadataGate;
+            return { result: { value: behavior.metadata } };
+          }
           return { result: { value: '{}' } };
         }
         return {};
@@ -399,7 +407,6 @@ describe('debugger session with a mocked chrome API', () => {
 
     it('reaches stopped and flushes the buffer when Runtime.evaluate never answers', async () => {
       vi.useFakeTimers();
-      vi.stubEnv('VITE_BUGBRIEF_DEBUG', 'true'); // the metadata read only runs in a debug build
       const { session, env } = await boot();
       await session.startRecording(7);
       await session.handleEvent(source, 'Runtime.exceptionThrown', exception());
@@ -427,7 +434,6 @@ describe('debugger session with a mocked chrome API', () => {
 
     it('reaches stopped within the budget when a body fetch, the metadata read and detach all hang', async () => {
       vi.useFakeTimers();
-      vi.stubEnv('VITE_BUGBRIEF_DEBUG', 'true');
       const { session, env } = await boot();
       env.bodies.set('r9', { body: 'x', base64Encoded: false });
       await session.startRecording(7);
@@ -711,13 +717,15 @@ describe('debugger session with a mocked chrome API', () => {
       return booted;
     }
 
-    it('prints no captured data and skips the metadata read in a normal build', async () => {
+    it('prints no captured data, and still reads the page metadata, in a normal build', async () => {
       const { env } = await recordSecrets();
       const text = loggedText();
-      for (const secret of ['SECRETQ', 'hunter2', 'SECRETBODY', 'ABC999', 'PAGESECRET', '/api/orders', 'localhost:5174']) {
+      for (const secret of ['SECRETQ', 'hunter2', 'SECRETBODY', 'ABC999', 'PAGESECRET', '/api/orders', 'localhost:5174', 'Demo shop']) {
         expect(text).not.toContain(secret);
       }
-      expect(env.sent.some((call) => call.method === 'Runtime.evaluate')).toBe(false);
+      // P7: the capsule needs the title and viewport in every build, so the read is no longer debug-only.
+      const reads = env.sent.filter((call) => call.method === 'Runtime.evaluate' && String((call.params as { expression?: string })?.expression).includes('innerWidth'));
+      expect(reads.length).toBeGreaterThanOrEqual(2); // Start and Stop
       expect(vi.mocked(console.log).mock.calls.some((call) => call[0] === '[BugBrief] recording stopped')).toBe(true);
     });
 
@@ -756,5 +764,132 @@ describe('debugger session with a mocked chrome API', () => {
       });
       expect((await session.ready).status).toBe('stopped');
     });
+  });
+});
+
+describe('page metadata at Start and Stop (P7, criterion 9)', () => {
+  const meta = (title: string) => ({ title, width: 1440, height: 900 });
+
+  it('reads the title and viewport at Start and stores them for the current page URL', async () => {
+    const { session } = await boot();
+    await session.startRecording(7);
+    const page = session.getBufferState().page;
+    expect(page).toEqual({ title: 'Demo shop', viewport: { width: 1280, height: 720 }, forUrl: 'http://localhost:5174/' });
+  });
+
+  it('reads again at Stop and the newer value wins', async () => {
+    const { session, env } = await boot();
+    await session.startRecording(7);
+    env.behavior.metadata = meta('Orders');
+    await session.stopRecording();
+    expect(session.getBufferState().page).toMatchObject({ title: 'Orders', viewport: { width: 1440, height: 900 } });
+  });
+
+  it('persists the metadata under buffer.meta', async () => {
+    const { session, env } = await boot();
+    await session.startRecording(7);
+    await session.stopRecording();
+    expect((env.store.get('buffer.meta') as { page?: { title: string } }).page?.title).toBe('Demo shop');
+  });
+
+  it('an empty Stop title never erases a non-empty Start title for the same page', async () => {
+    const { session, env } = await boot();
+    await session.startRecording(7);
+    env.behavior.metadata = { title: '', width: 1440, height: 900 };
+    await session.stopRecording();
+    expect(session.getBufferState().page).toMatchObject({ title: 'Demo shop', viewport: { width: 1440, height: 900 } });
+  });
+
+  it('does not keep a Start title for a different page (the page changed before Stop)', async () => {
+    const { session, env } = await boot();
+    await session.startRecording(7);
+    await session.handleEvent(source, 'Page.frameNavigated', { frame: { id: 'MAIN', url: 'http://localhost:5174/next' } });
+    env.behavior.metadata = { title: '', width: 1280, height: 720 };
+    await session.stopRecording();
+    expect(session.getBufferState().page).toEqual({ title: '', viewport: { width: 1280, height: 720 }, forUrl: 'http://localhost:5174/next' });
+  });
+
+  it('keeps the Start values when the recording ends by Cancel or a closed tab', async () => {
+    const { session } = await boot();
+    await session.startRecording(7);
+    await session.handleDetach(source, 'canceled_by_user');
+    expect(session.getBufferState().page?.title).toBe('Demo shop');
+    const second = await boot();
+    await second.session.startRecording(7);
+    await second.session.handleTabRemoved(7);
+    expect(second.session.getBufferState().page?.title).toBe('Demo shop');
+  });
+
+  it('ignores a hostile page: wrong types, huge title, bad viewport and a throwing result', async () => {
+    const hostile = await boot();
+    hostile.env.behavior.metadata = { title: 5, width: -3, height: 'x' };
+    await hostile.session.startRecording(7);
+    expect(hostile.session.getBufferState().page).toBeUndefined();
+    const huge = await boot();
+    huge.env.behavior.metadata = { title: 'T'.repeat(5000), width: Number.NaN, height: 900 };
+    await huge.session.startRecording(7);
+    expect(huge.session.getBufferState().page).toEqual({ title: 'T'.repeat(512), forUrl: 'http://localhost:5174/' });
+    const arr = await boot();
+    arr.env.behavior.metadata = ['title'];
+    await expect(arr.session.startRecording(7)).resolves.toMatchObject({ status: 'recording' });
+    expect(arr.session.getBufferState().page).toBeUndefined();
+  });
+
+  it('Start succeeds when the metadata read hangs, within its 1 s bound', async () => {
+    vi.useFakeTimers();
+    const { session, env } = await boot();
+    env.behavior.hangEvaluate = true;
+    const starting = session.startRecording(7);
+    await vi.advanceTimersByTimeAsync(1500);
+    await expect(starting).resolves.toMatchObject({ status: 'recording' });
+    expect(session.getBufferState().page).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it('a read that resolves after Clear does not change the new buffer', async () => {
+    vi.useFakeTimers();
+    const { session, env } = await boot();
+    await session.startRecording(7);
+    let release!: () => void;
+    env.behavior.metadataGate = new Promise<void>((resolve) => (release = resolve));
+    env.behavior.metadata = meta('OLD SESSION');
+    const stopping = session.stopRecording();
+    await vi.advanceTimersByTimeAsync(1500); // the Stop read times out at 1 s, Stop finishes
+    await expect(stopping).resolves.toMatchObject({ status: 'stopped' });
+    await session.clearBuffers();
+    release();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(session.getBufferState().page).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it('a read that resolves after a new Start does not overwrite the new session', async () => {
+    vi.useFakeTimers();
+    const { session, env } = await boot();
+    await session.startRecording(7);
+    let release!: () => void;
+    env.behavior.metadataGate = new Promise<void>((resolve) => (release = resolve));
+    env.behavior.metadata = meta('OLD SESSION');
+    const stopping = session.stopRecording();
+    await vi.advanceTimersByTimeAsync(1500);
+    await stopping;
+    env.behavior.metadataGate = undefined;
+    env.behavior.metadata = meta('NEW SESSION');
+    await session.startRecording(7);
+    release();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(session.getBufferState().page?.title).toBe('NEW SESSION');
+    vi.useRealTimers();
+  });
+
+  it('Stop still reaches stopped within the 4.5 s cap when the page never answers', async () => {
+    vi.useFakeTimers();
+    const { session, env } = await boot();
+    await session.startRecording(7);
+    env.behavior.hangEvaluate = true;
+    const stopping = session.stopRecording();
+    await vi.advanceTimersByTimeAsync(4500);
+    await expect(stopping).resolves.toMatchObject({ status: 'stopped' });
+    vi.useRealTimers();
   });
 });

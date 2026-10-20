@@ -22,7 +22,8 @@ export type PopupToWorker =
   | { type: 'START_PICKER'; tabId: number }
   | { type: 'GET_STATE' }
   | { type: 'BUILD_CAPSULE'; userNote: string }
-  | { type: 'DOWNLOAD_CAPSULE'; userNote: string }
+  /** `capturedAt` and `previewHash` come from the Preview, so the files match the text that was copied. */
+  | { type: 'DOWNLOAD_CAPSULE'; userNote: string; capturedAt: string; previewHash: string }
   | { type: 'CLEAR' };
 
 export type PickerToWorker =
@@ -58,6 +59,14 @@ export type WorkerResponse =
       markdown?: string;
       hasElement: boolean;
       element?: ElementSummary;
+      /** Preview: the masks applied before the caps, when the capsule was built, and its hash. */
+      redactionCount?: number;
+      capturedAt?: string;
+      previewHash?: string;
+      /** What the capsule says about the screenshot. 'captured' and 'clipped' mean a PNG goes with Download. */
+      screenshot?: 'none' | 'pending' | 'captured' | 'clipped' | 'unavailable';
+      /** Download: the files that were started. */
+      files?: string[];
       counts?: BufferCounts;
       persistenceOk?: boolean;
     }

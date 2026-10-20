@@ -10,6 +10,31 @@ import { elements, elementsReady } from './element';
 import { elementFields, receivePick, startPickerFlow } from './picker-flow';
 import { captureForPick, sharedCapturer } from './screenshot';
 import { reconcile } from './state';
+import { chromeDownloadDeps } from './download';
+import { createCapsuleFlow } from './capsule-flow';
+import { getBufferState } from './debugger-session';
+
+/** The real reads for the capsule builder. Created on first use, so importing this file touches no API. */
+function realFlow() {
+  return createCapsuleFlow(
+    {
+      readBuffer: () => {
+        const buffer = getBufferState();
+        return { console: buffer.console, network: buffer.network, pageUrl: buffer.pageUrl, page: buffer.page, evicted: buffer.evicted };
+      },
+      readElement: () => {
+        const stored = elements.get();
+        const snapshot = elements.snapshot();
+        return stored && snapshot
+          ? { snapshot, tabId: stored.tabId, pickedAt: stored.pickedAt, page: stored.page, screenshot: stored.screenshot }
+          : undefined;
+      },
+      userAgent: () => navigator.userAgent,
+      now: () => new Date(),
+    },
+    chromeDownloadDeps(),
+  );
+}
 
 export async function handleMessage(
   message: PopupToWorker | PickerToWorker,
@@ -54,6 +79,15 @@ export async function handleMessage(
         await ready;
         const state = await reconcile();
         return { ok: true, state, ...(await elementFields()), ...(await getCounts()) };
+      }
+      case 'BUILD_CAPSULE':
+      case 'DOWNLOAD_CAPSULE': {
+        await ready;
+        const state = await reconcile();
+        await elementsReady;
+        const base = { state, ...(await elementFields()), ...(await getCounts()) };
+        const flow = realFlow();
+        return message.type === 'BUILD_CAPSULE' ? flow.build(message, state, base) : flow.download(message, state, base);
       }
       default:
         return { ok: false, error: 'Not implemented yet.' };

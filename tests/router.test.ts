@@ -11,6 +11,7 @@ const session = {
   })),
   startRecording: vi.fn(async (tabId: number) => (state = { status: 'recording', tabId, startedAt: 1 })),
   stopRecording: vi.fn(async () => (state = { status: 'stopped', tabId: 1, startedAt: 1, stoppedAt: 2 })),
+  getBufferState: vi.fn(() => ({ console: [], network: [], pending: [], nextSeq: 1, evicted: { console: { entries: 0, occurrences: 0 }, network: { entries: 0, occurrences: 0 } } })),
   clearBuffers: vi.fn(async () => {
     if (state.status === 'recording') throw new Error('Stop recording before clearing.');
     return (state = { status: 'idle' });
@@ -183,4 +184,22 @@ describe('handleMessage with an element', () => {
     expect(await handleMessage({ type: 'CLEAR' }, popupSender)).toMatchObject({ ok: true, hasElement: false });
     expect(store.has('elementScreenshot')).toBe(false);
   });
+
+  it('BUILD_CAPSULE refuses while recording and when there is nothing to report', async () => {
+    const { handleMessage } = await load();
+    expect(await handleMessage({ type: 'BUILD_CAPSULE', userNote: '' }, popupSender)).toEqual({ ok: false, error: 'Nothing to report yet.' });
+    await handleMessage({ type: 'START_RECORDING', tabId: 7 }, popupSender);
+    expect(await handleMessage({ type: 'BUILD_CAPSULE', userNote: '' }, popupSender)).toEqual({ ok: false, error: 'Stop recording first.' });
+    expect(await handleMessage({ type: 'DOWNLOAD_CAPSULE', userNote: '', capturedAt: '2026-10-20T10:15:30.120Z', previewHash: 'x' }, popupSender)).toEqual({ ok: false, error: 'Stop recording first.' });
+  });
+
+  it('BUILD_CAPSULE builds from a picked element through the real flow', async () => {
+    const { handleMessage } = await load();
+    await handleMessage(picked, tabSender);
+    const response = await handleMessage({ type: 'BUILD_CAPSULE', userNote: 'note' }, popupSender);
+    expect(response).toMatchObject({ ok: true, hasElement: true, screenshot: 'pending' });
+    expect(response.ok && response.markdown).toContain('## Selected element');
+    expect(response.ok && response.markdown).toContain('still being captured');
+  });
 });
+

@@ -91,7 +91,7 @@ export interface Capsule {
   pageUrl: string;
   pageTitle: string;
   userAgent: string;
-  viewport: { width: number; height: number };
+  viewport?: { width: number; height: number }; // P7: absent when the page size could not be read
   capturedAt: string;
   console: ConsoleEntry[];
   network: NetworkEntry[];
