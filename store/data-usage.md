@@ -2,19 +2,20 @@
 
 Do not tick "does not collect user data": BugBrief handles page data on the user's device (Chrome's User Data FAQ counts this as handling).
 
-## Data types to tick
-- [x] Website content
-- [x] Web browsing activity
-- [x] Authentication information
-- [x] Form data
+## Data types to tick (the dashboard's nine checkboxes)
 - [x] Personally identifiable information
 - [ ] Health information
 - [ ] Financial and payment information
+- [x] Authentication information
 - [ ] Personal communications
 - [ ] Location
-- [ ] User activity (keystrokes, mouse)
+- [x] Web history
+- [x] User activity
+- [x] Website content
 
-The ones ticked are what the page can show or send while it is recorded. The privacy policy states the same list.
+How they map: Website content is the page content, the picked element and the screenshot. Web history is the page and request addresses (URLs). User activity is the network monitoring (requests, responses, console messages) that the `debugger` permission reads. Authentication information and Personally identifiable information are what the page can show or send (sign-in tokens, form values, names, email addresses). The store has no "Form data" box, so form values fall under Website content and PII.
+
+Health, financial and personal communications are left unticked: BugBrief does not look for them. If a recorded page happens to show them, the privacy policy says so ("can include ... financial, health or private messages if they appear on the page").
 
 ## Certifications (tick all three)
 - [x] I do not sell or transfer user data to third parties, outside of the approved use cases

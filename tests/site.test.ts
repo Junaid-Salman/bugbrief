@@ -96,9 +96,10 @@ describe('store/ documents', () => {
 
   it('discloses the data types and does not claim that no data is handled', () => {
     const usage = store('data-usage.md');
-    for (const kind of ['Website content', 'Web browsing activity', 'Authentication information', 'Form data', 'Personally identifiable information']) {
+    for (const kind of ['Personally identifiable information', 'Authentication information', 'Web history', 'User activity', 'Website content']) {
       expect(usage, kind).toContain(`- [x] ${kind}`);
     }
+    for (const kind of ['Health information', 'Financial and payment information', 'Personal communications', 'Location']) expect(usage, kind).toContain(`- [ ] ${kind}`);
     expect(usage.match(/- \[x\] I do not/g)).toHaveLength(3);
   });
 
@@ -114,5 +115,12 @@ describe('privacy policy URL', () => {
   it('is the deployed address in the data-usage answers', () => {
     expect(read('store/data-usage.md')).toContain('https://bugbrief-bice.vercel.app/privacy');
     expect(read('store/data-usage.md')).not.toContain('<vercel-project>');
+  });
+
+  it('has a short version that fits the dashboard limit of 500 characters', () => {
+    const short = /## Short version[\s\S]*?```\n([\s\S]*?)```/.exec(read('store/test-instructions.md'))?.[1] ?? '';
+    expect(short.length).toBeGreaterThan(0);
+    expect(short.trim().length).toBeLessThanOrEqual(500);
+    expect(short).toContain('I understand, continue');
   });
 });

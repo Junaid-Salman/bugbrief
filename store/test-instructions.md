@@ -14,3 +14,16 @@ No account or sign-in is needed. BugBrief works on any ordinary web page.
 The report contains the console error, the failed request, the picked element and a screenshot. Nothing leaves the browser.
 
 BugBrief cannot record chrome:// pages or the Chrome Web Store; it shows a message there.
+
+## Short version (the dashboard field allows 500 characters)
+
+```
+No sign-in needed. Works on any https page (e.g. example.com).
+1. Click the icon, then "I understand, continue".
+2. Click Start recording (Chrome's debugging banner is expected).
+3. In the page's DevTools console run: fetch('/x'+Date.now()); console.error('t')
+4. Reopen the popup: 1 error, 1 failed request.
+5. Stop, Pick element, click the heading.
+6. Add a note, Preview, Copy.
+Nothing leaves the browser. chrome:// pages are not supported.
+```
