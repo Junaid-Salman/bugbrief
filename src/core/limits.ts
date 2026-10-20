@@ -16,6 +16,7 @@ export const FIELD = {
   selector: 2048,
   outerHTML: 32_768, // raw cap for the picked element; P7 cuts to 3 KB after redaction
   pageTitle: 512,
+  userNote: 2000,
   styleValue: 256,
   maxHeaders: 30,
   headerName: 64,
@@ -37,6 +38,18 @@ export const SCREENSHOT = {
   retryDelayMs: 600,
   maxRetries: 2,
   captureTimeoutMs: 15_000, // one capture request, from the moment it starts running (P6.1, M2)
+} as const;
+
+/** The Markdown capsule (P7). All cuts are in characters, on a code-point boundary. */
+export const CAPSULE = {
+  maxConsole: 20,
+  maxNetwork: 10,
+  maxFrames: 12,
+  maxBody: 4096,
+  maxHtml: 3072,
+  maxTitle: 100,
+  maxInline: 300,
+  highFrequency: 5,
 } as const;
 
 export const SOFT_LIMIT_BYTES = 7 * 1024 * 1024;

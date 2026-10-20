@@ -1,4 +1,4 @@
-import type { ConsoleEntry, NetworkEntry, RawConsoleEntry, RawNetworkEntry } from './types';
+import type { CapsuleSummary, ConsoleEntry, NetworkEntry, RawConsoleEntry, RawNetworkEntry } from './types';
 
 const UUID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 const ISO_TS = /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?/g;
@@ -216,3 +216,74 @@ export function refoldRedacted(
     network: refold(network, networkFingerprint, foldNetwork).map(stripInternal),
   };
 }
+
+// --- Cause and effect links, and the capsule summary (P7) -----------------------------------------
+
+const LINK_WINDOW_MS = 1500;
+const MIN_PATH_LENGTH = 3;
+const NETWORK_WORDS = /fetch|network|xhr|XMLHttpRequest|failed to load|status code|net::/i;
+
+function requestPath(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url.split(/[?#]/)[0] ?? '';
+  }
+}
+
+/**
+ * Picks the shown request a console entry most likely belongs to, or undefined. Rule 1: the
+ * message, or the entry's own `url` (Chrome's "Failed to load resource" entries carry the request
+ * URL there), contains the request's URL path; paths under 3 characters and `/` are ignored, the
+ * longest path wins and ties go to the closest timestamp. Rule 2: otherwise, a network-sounding
+ * message links to the request within 1500 ms with the closest timestamp.
+ */
+function pickRequest(entry: ConsoleEntry, shown: NetworkEntry[]): number | undefined {
+  const haystack = `${entry.message}\n${entry.url ?? ''}`;
+  let best: { index: number; length: number; gap: number } | undefined;
+  shown.forEach((request, index) => {
+    const path = requestPath(request.url);
+    if (path === '/' || path.length < MIN_PATH_LENGTH || !haystack.includes(path)) return;
+    const gap = Math.abs(entry.timestamp - request.timestamp);
+    if (!best || path.length > best.length || (path.length === best.length && gap < best.gap)) {
+      best = { index, length: path.length, gap };
+    }
+  });
+  if (best) return best.index + 1;
+  if (!NETWORK_WORDS.test(entry.message)) return undefined;
+  let closest: { index: number; gap: number } | undefined;
+  shown.forEach((request, index) => {
+    const gap = Math.abs(entry.timestamp - request.timestamp);
+    if (gap <= LINK_WINDOW_MS && (!closest || gap < closest.gap)) closest = { index, gap };
+  });
+  return closest ? closest.index + 1 : undefined;
+}
+
+/**
+ * Sets `relatedRequest` (1-based, into the shown network list) and clears any stale value. A link
+ * is a hint: it never merges entries or changes counts. Input entries are not mutated.
+ */
+export function linkCauses<C extends ConsoleEntry>(consoleEntries: C[], shownNetwork: NetworkEntry[]): C[] {
+  return consoleEntries.map((entry) => {
+    const { relatedRequest: _stale, ...rest } = entry;
+    void _stale;
+    const index = pickRequest(entry, shownNetwork);
+    return (index === undefined ? rest : { ...rest, relatedRequest: index }) as C;
+  });
+}
+
+/** Unique and total counts over the full, folded, redacted lists, before any cap. */
+export function summarizeCapsule(consoleEntries: ConsoleEntry[], network: NetworkEntry[]): CapsuleSummary {
+  const total = (items: Array<{ count: number }>): number => items.reduce((sum, item) => sum + item.count, 0);
+  const errors = consoleEntries.filter((entry) => entry.level === 'error');
+  const warnings = consoleEntries.filter((entry) => entry.level !== 'error');
+  return {
+    uniqueErrors: errors.length,
+    totalErrors: total(errors),
+    uniqueWarnings: warnings.length,
+    totalWarnings: total(warnings),
+    uniqueRequests: network.length,
+    totalRequests: total(network),
+  };
+}
+

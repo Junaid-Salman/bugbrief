@@ -1,3 +1,5 @@
+import type { PageMetadata } from './page-metadata';
+import { sanitizeStoredPage } from './page-metadata';
 import { foldConsole, foldNetwork, toConsoleEntry, toNetworkEntry } from './consolidate';
 import {
   CONSOLE_CAP,
@@ -25,6 +27,8 @@ export interface BufferState {
   pending: PendingRequest[];
   nextSeq: number;
   pageUrl?: string;
+  /** Read at Start and Stop (P7). Absent until a read succeeds. */
+  page?: PageMetadata;
   mainFrameId?: string;
   evicted: { console: EvictedTally; network: EvictedTally };
 }
@@ -240,6 +244,7 @@ export function serialize(state: BufferState, includePending: boolean): Record<s
     [KEYS.pending]: includePending ? markedPending(state).slice(-PENDING_PERSIST_CAP) : [],
     [KEYS.meta]: {
       pageUrl: state.pageUrl,
+      page: state.page,
       mainFrameId: state.mainFrameId,
       nextSeq: state.nextSeq,
       evicted: state.evicted,
@@ -278,10 +283,12 @@ export function rehydrateState(stored: Record<string, unknown>): BufferState {
   if (Array.isArray(networkEntries) && networkEntries.every(isEntry)) state.network = networkEntries as NetworkEntry[];
   if (Array.isArray(pending) && pending.every(isPending)) state.pending = pending as PendingRequest[];
   const meta = stored[KEYS.meta] as
-    | { pageUrl?: unknown; mainFrameId?: unknown; nextSeq?: unknown; evicted?: { console?: unknown; network?: unknown } }
+    | { pageUrl?: unknown; page?: unknown; mainFrameId?: unknown; nextSeq?: unknown; evicted?: { console?: unknown; network?: unknown } }
     | undefined;
   if (meta && typeof meta === 'object') {
     if (typeof meta.pageUrl === 'string') state.pageUrl = meta.pageUrl;
+    const page = sanitizeStoredPage(meta.page); // absent in data stored by an older build
+    if (page) state.page = page;
     if (typeof meta.mainFrameId === 'string') state.mainFrameId = meta.mainFrameId;
     if (typeof meta.nextSeq === 'number') state.nextSeq = meta.nextSeq;
     state.evicted = { console: tallyOf(meta.evicted?.console), network: tallyOf(meta.evicted?.network) };
