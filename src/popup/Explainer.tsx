@@ -12,7 +12,7 @@ export function Explainer({ onDismiss }: ExplainerProps) {
       <img src={logoUrl} alt="" />
       <h1>Before you record</h1>
       <p>
-        When you start recording, Chrome shows a banner: <em>"BugBrief started debugging this browser."</em> BugBrief
+        When you start recording, Chrome shows a banner: <em>"Conscribe started debugging this browser."</em> Conscribe
         needs it to read data from the tab you choose.
       </p>
       <h2>{COPY.explainerReadsTitle}</h2>

@@ -68,8 +68,8 @@ describe('download (criterion 12)', () => {
     const rig = make({ element: picked(), pickedAt: 1, status: 'captured' });
     const p = await preview(rig, 'note');
     const response = await rig.flow.download({ type: 'DOWNLOAD_CAPSULE', userNote: 'note', capturedAt: p.capturedAt, previewHash: p.previewHash }, idle, BASE);
-    expect(response).toMatchObject({ ok: true, files: ['bugbrief/capsule-20261020-101530.md', 'bugbrief/capsule-20261020-101530.png'] });
-    expect(rig.calls.map((c) => c.filename)).toEqual(['bugbrief/capsule-20261020-101530.md', 'bugbrief/capsule-20261020-101530.png']);
+    expect(response).toMatchObject({ ok: true, files: ['conscribe/capsule-20261020-101530.md', 'conscribe/capsule-20261020-101530.png'] });
+    expect(rig.calls.map((c) => c.filename)).toEqual(['conscribe/capsule-20261020-101530.md', 'conscribe/capsule-20261020-101530.png']);
     expect(rig.calls.every((c) => c.saveAs === false && c.conflictAction === 'uniquify')).toBe(true);
     expect(rig.calls[0]?.url).toBe(markdownDataUrl(p.markdown));
     expect(decodeURIComponent((rig.calls[0]?.url ?? '').split(',').slice(1).join(','))).toBe(p.markdown);
@@ -80,7 +80,7 @@ describe('download (criterion 12)', () => {
     const rig = make();
     const p = await preview(rig);
     const response = await rig.flow.download({ type: 'DOWNLOAD_CAPSULE', userNote: '', capturedAt: p.capturedAt, previewHash: p.previewHash }, idle, BASE);
-    expect(response).toMatchObject({ ok: true, files: ['bugbrief/capsule-20261020-101530.md'] });
+    expect(response).toMatchObject({ ok: true, files: ['conscribe/capsule-20261020-101530.md'] });
     expect(rig.calls).toHaveLength(1);
   });
   it('refuses while recording, and without a preview', async () => {

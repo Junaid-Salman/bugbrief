@@ -392,7 +392,7 @@ function Header({ status }: { status?: RecordingState['status'] }) {
     <header class="header">
       <h1 class="brand">
         <img src={logoUrl} alt="" />
-        BugBrief
+        Conscribe
       </h1>
       {status ? (
         <span class={`pill pill--${status}`} aria-label={`Status: ${statusLabel[status]}`}>

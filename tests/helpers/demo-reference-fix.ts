@@ -12,7 +12,7 @@ export interface DemoCopy {
 
 /** A scratch copy of demo/ that a test can break or fix without touching the real files. */
 export function copyDemo(): DemoCopy {
-  const folder = mkdtempSync(join(tmpdir(), 'bugbrief-demo-'));
+  const folder = mkdtempSync(join(tmpdir(), 'conscribe-demo-'));
   cpSync(demo, folder, { recursive: true });
   return {
     folder,

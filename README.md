@@ -1,10 +1,10 @@
-# BugBrief
+# Conscribe
 
 Hand a broken page to an AI coding agent in one click.
 
-BugBrief is a Chrome extension. You record the broken tab, point at the broken element, and it produces one Markdown report with the console errors, the failed requests and their responses, the element's HTML and styles, and a screenshot. BugBrief masks secrets it recognizes, such as tokens, keys, passwords and email addresses. It can miss others, and the screenshot is not masked, so read the report before you share it.
+Conscribe is a Chrome extension. You record the broken tab, point at the broken element, and it produces one Markdown report with the console errors, the failed requests and their responses, the element's HTML and styles, and a screenshot. Conscribe masks secrets it recognizes, such as tokens, keys, passwords and email addresses. It can miss others, and the screenshot is not masked, so read the report before you share it.
 
-![BugBrief demo: record, pick, preview with redaction, copy](docs/demo.gif)
+![Conscribe demo: record, pick, preview with redaction, copy](docs/demo.gif)
 
 *The animation is rendered from the built popup and the demo shop with scripted extension state, not a live screen recording.*
 
@@ -24,16 +24,16 @@ BugBrief is a Chrome extension. You record the broken tab, point at the broken e
 
 ## Install
 
-BugBrief is not on the Chrome Web Store yet. Build it and load it unpacked:
+Conscribe is not on the Chrome Web Store yet. Build it and load it unpacked:
 
 ```bash
-git clone https://github.com/Junaid-Salman/bugbrief.git
-cd bugbrief
+git clone https://github.com/Junaid-Salman/conscribe.git
+cd conscribe
 npm ci
 npm run build
 ```
 
-Then open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked** and select the `dist/` folder. Pin the BugBrief icon.
+Then open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked** and select the `dist/` folder. Pin the Conscribe icon.
 
 ## Try it on the demo shop
 
@@ -44,11 +44,11 @@ npm run demo
 ```
 
 1. Open <http://localhost:5174/?token=demo-session-3b7f1c9e2a>. The page looks fine: that is the point, nothing on screen says that checkout fails.
-2. Click the BugBrief icon, then **Start recording**. Chrome shows a banner, "BugBrief started debugging this browser". That is expected: it is how BugBrief reads errors from the tab.
+2. Click the Conscribe icon, then **Start recording**. Chrome shows a banner, "Conscribe started debugging this browser". That is expected: it is how Conscribe reads errors from the tab.
 3. Reload the page. The error and the failed request happen on load, so they are captured. Errors that happened before you clicked Start are not.
-4. Click the BugBrief icon again. Click **Stop recording**.
+4. Click the Conscribe icon again. Click **Stop recording**.
 5. Click **Pick element**. The popup closes. Move over the Order Summary card and click it. (Press `Esc` to cancel.)
-6. Click the BugBrief icon again. The popup says the screenshot was captured. Type what you expected, then click **Preview**.
+6. Click the Conscribe icon again. The popup says the screenshot was captured. Type what you expected, then click **Preview**.
 7. The preview shows how many values were redacted, for example "7 values redacted", and a warning that the screenshot is not redacted. Click **Copy**, or **Download** to save the `.md` and `.png`.
 
 Open the report and check it: the `token` in the page address, the `Authorization` header and the customer's email must not appear. If one does, that is a bug: see [Reporting a leak](#reporting-a-redaction-leak).
@@ -68,28 +68,28 @@ Open your agent in this repo, paste the report, and ask it to fix the problems i
 Same steps as the demo: open your page, **Start recording**, reproduce the bug (reload first if the error happens on load), **Stop recording**, optionally **Pick element**, then **Preview** and **Copy**.
 
 - Pick from a freshly opened popup. A page reload ends the permission the popup was given.
-- Use `http://localhost` or a normal website. `file://` pages need "Allow access to file URLs" for BugBrief in `chrome://extensions`.
+- Use `http://localhost` or a normal website. `file://` pages need "Allow access to file URLs" for Conscribe in `chrome://extensions`.
 - **Clear** removes the recording, the picked element and your note.
 
 ## Permissions
 
-| Permission | Why BugBrief needs it |
+| Permission | Why Conscribe needs it |
 |---|---|
 | `debugger` | Reads console errors, exceptions and failed requests (and their response bodies) from the tab you start recording. It attaches only after you click **Start recording**, only to that tab, and detaches when you stop. |
-| `activeTab` | Gives BugBrief access to the tab you opened the popup on, without asking for access to every site. |
+| `activeTab` | Gives Conscribe access to the tab you opened the popup on, without asking for access to every site. |
 | `scripting` | Injects the element picker into that tab when you click **Pick element**. |
 | `storage` | Keeps the recording in memory (`chrome.storage.session`) so it survives the extension's background worker restarting, and remembers that you have read the first-run notice. |
 | `downloads` | Saves the report and the screenshot when you click **Download**. |
 
-BugBrief asks for no host permissions and loads no remote code.
+Conscribe asks for no host permissions and loads no remote code.
 
 ## Privacy
 
-No data leaves your machine. BugBrief has no server, no account, no analytics and no network requests of its own. The recording lives in `chrome.storage.session`, which Chrome clears when the browser closes. The report goes only to your clipboard or to files you download.
+No data leaves your machine. Conscribe has no server, no account, no analytics and no network requests of its own. The recording lives in `chrome.storage.session`, which Chrome clears when the browser closes. The report goes only to your clipboard or to files you download.
 
-**What BugBrief reads.** From the tab you record, and only after you click **Start recording**: the page content and the element you pick, a screenshot of it, the addresses (URLs) the page uses, the contents of its requests and responses, and console messages. That can include personal data and sign-in tokens that the page shows or sends. All of it stays on your device and is never sent anywhere.
+**What Conscribe reads.** From the tab you record, and only after you click **Start recording**: the page content and the element you pick, a screenshot of it, the addresses (URLs) the page uses, the contents of its requests and responses, and console messages. That can include personal data and sign-in tokens that the page shows or sends. All of it stays on your device and is never sent anywhere.
 
-**Limited Use.** The use of information BugBrief receives through Chrome extension APIs adheres to the Chrome Web Store User Data Policy, including the Limited Use requirements. The data is used only to build the report you ask for. It is not transferred to anyone, not used for advertising or credit decisions, and no person reads it.
+**Limited Use.** The use of information Conscribe receives through Chrome extension APIs adheres to the Chrome Web Store User Data Policy, including the Limited Use requirements. The data is used only to build the report you ask for. It is not transferred to anyone, not used for advertising or credit decisions, and no person reads it.
 
 Redaction runs before anything reaches the popup, your clipboard or a file. It covers query parameters in page and request URLs, JSON bodies, console text, element HTML (including password and hidden input values) and email addresses. Request headers are not put in the report at all. **The screenshot is not redacted.** The preview warns you, and you should look at it before you share it. Redaction is on by default and cannot be turned off. Always read the report before you share it.
 
@@ -99,18 +99,18 @@ Redaction runs before anything reaches the popup, your clipboard or a file. It c
 - Console output and requests from iframes, Web Workers and page service workers are not captured.
 - Only one tab is recorded at a time.
 - The screenshot is the visible part of the page and one element. An element taller than the window is cropped to the window, and the report says so. A pinch-zoomed page crops wrongly.
-- BugBrief cannot run on `chrome://` pages, other extensions' pages, `view-source:` pages or the Chrome Web Store.
-- Chrome shows "BugBrief started debugging this browser" while recording. Clicking **Cancel** on it ends the recording and keeps what was captured.
+- Conscribe cannot run on `chrome://` pages, other extensions' pages, `view-source:` pages or the Chrome Web Store.
+- Chrome shows "Conscribe started debugging this browser" while recording. Clicking **Cancel** on it ends the recording and keeps what was captured.
 - If another extension or a stale session already holds the tab, Chrome refuses to attach. Disable other debugging extensions and try again.
 - Redaction is pattern based. Keys with no recognizable name or format may not be masked, for example some AI provider keys. Read the report before you share it.
 
 ## Reporting a redaction leak
 
-If a secret reaches a report, please [open an issue](https://github.com/Junaid-Salman/bugbrief/issues) and describe the field it was in, but not the secret itself. Every confirmed leak becomes a regression test.
+If a secret reaches a report, please [open an issue](https://github.com/Junaid-Salman/conscribe/issues) and describe the field it was in, but not the secret itself. Every confirmed leak becomes a regression test.
 
 ## Testing
 
-BugBrief is tested in three ways. None of them uses a paid service or an AI model.
+Conscribe is tested in three ways. None of them uses a paid service or an AI model.
 
 **Automated: `npm test`** (Vitest, more than 1,100 tests). It covers redaction (including a large corpus of real secret formats and look-alikes that must not be masked), error consolidation, the buffer, the picker, the screenshot, the capsule and the popup. Three groups are built on the demo shop:
 

@@ -1,6 +1,6 @@
 # Privacy practices tab: data usage
 
-Do not tick "does not collect user data": BugBrief handles page data on the user's device (Chrome's User Data FAQ counts this as handling).
+Do not tick "does not collect user data": Conscribe handles page data on the user's device (Chrome's User Data FAQ counts this as handling).
 
 ## Data types to tick (the dashboard's nine checkboxes)
 - [x] Personally identifiable information
@@ -15,7 +15,7 @@ Do not tick "does not collect user data": BugBrief handles page data on the user
 
 How they map: Website content is the page content, the picked element and the screenshot. Web history is the page and request addresses (URLs). User activity is the network monitoring (requests, responses, console messages) that the `debugger` permission reads. Authentication information and Personally identifiable information are what the page can show or send (sign-in tokens, form values, names, email addresses). The store has no "Form data" box, so form values fall under Website content and PII.
 
-Health, financial and personal communications are left unticked: BugBrief does not look for them. If a recorded page happens to show them, the privacy policy says so ("can include ... financial, health or private messages if they appear on the page").
+Health, financial and personal communications are left unticked: Conscribe does not look for them. If a recorded page happens to show them, the privacy policy says so ("can include ... financial, health or private messages if they appear on the page").
 
 ## Certifications (tick all three)
 - [x] I do not sell or transfer user data to third parties, outside of the approved use cases
@@ -26,4 +26,4 @@ Health, financial and personal communications are left unticked: BugBrief does n
 No.
 
 ## Privacy policy URL
-`https://bugbrief-bice.vercel.app/privacy` (from `site/privacy.html`, deployed with `npx vercel deploy ./site --prod`).
+`https://<NEW-VERCEL-HOST>/privacy` (from `site/privacy.html`; fill in after the new Vercel project is deployed. The old project is retired).

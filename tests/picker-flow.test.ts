@@ -81,7 +81,7 @@ describe('startPickerFlow (criterion 9, Q2)', () => {
   it('refuses a restricted page without injecting', async () => {
     const flow = await load();
     tabUrl = 'chrome://extensions';
-    await expect(flow.startPickerFlow(4, idle)).rejects.toThrow("BugBrief can't record this page.");
+    await expect(flow.startPickerFlow(4, idle)).rejects.toThrow("Conscribe can't record this page.");
     expect(inject).not.toHaveBeenCalled();
   });
 
@@ -110,7 +110,7 @@ describe('startPickerFlow (criterion 9, Q2)', () => {
     const flow = await load();
     tabUrl = undefined;
     inject.mockRejectedValue(new Error('Cannot access contents of the page. Extension manifest must request permission to access the respective host.'));
-    await expect(flow.startPickerFlow(4, idle)).rejects.toThrow("BugBrief can't record this page.");
+    await expect(flow.startPickerFlow(4, idle)).rejects.toThrow("Conscribe can't record this page.");
   });
 
   it('names the file URL setting on a file:// page', async () => {

@@ -1,8 +1,8 @@
-const PREFIX = '[BugBrief]';
+const PREFIX = '[Conscribe]';
 
 /** True only in a debug build (npm run dev or npm run build:debug). Off in the build you ship. */
 export function debugEnabled(): boolean {
-  return import.meta.env.VITE_BUGBRIEF_DEBUG === 'true';
+  return import.meta.env.VITE_CONSCRIBE_DEBUG === 'true';
 }
 
 /**

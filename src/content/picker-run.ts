@@ -2,7 +2,7 @@ import type { PickerToWorker } from '../shared/messages';
 import { createElementOf, documentElementOf, rectOf, scrollIntoViewOf, visibilityStateOf } from './dom-safe';
 import { buildPayload, describeElement, describeTarget, resolveTarget } from './picker-dom';
 
-const FLAG = '__bugbriefPicker';
+const FLAG = '__conscribePicker';
 const HINT = 'Click an element. Esc cancels.';
 const ACCENT = '#1a73e8';
 const TOP_Z_INDEX = '2147483647';

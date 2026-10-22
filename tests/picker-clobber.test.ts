@@ -50,7 +50,7 @@ beforeEach(() => {
     '<form class="card"><button class="btn">Other</button></form>';
   form = document.getElementById('edit') as HTMLFormElement;
   decoy = document.createElement('input');
-  (window as unknown as { __bugbriefPicker?: unknown }).__bugbriefPicker = false;
+  (window as unknown as { __conscribePicker?: unknown }).__conscribePicker = false;
 });
 
 afterEach(() => {

@@ -1,5 +1,5 @@
 {
-  "name": "bugbrief",
+  "name": "conscribe",
   "version": "1.0.0",
   "description": "Package console errors, failed requests, the broken element and a screenshot into one agent-ready Markdown report.",
   "private": true,
@@ -22,12 +22,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Junaid-Salman/bugbrief.git"
+    "url": "git+https://github.com/Junaid-Salman/conscribe.git"
   },
   "bugs": {
-    "url": "https://github.com/Junaid-Salman/bugbrief/issues"
+    "url": "https://github.com/Junaid-Salman/conscribe/issues"
   },
-  "homepage": "https://github.com/Junaid-Salman/bugbrief#readme",
+  "homepage": "https://github.com/Junaid-Salman/conscribe#readme",
   "keywords": [
     "chrome-extension",
     "manifest-v3",

@@ -8,7 +8,7 @@ This script is for replacing it with a true screen recording: about 30 s, 1280x8
 
 1. Build the final extension and load `dist/` in a clean Chrome profile with no other extensions, bookmarks or tabs.
 2. `npm run demo`, then open `http://localhost:5174/?token=demo-session-3b7f1c9e2a`.
-3. Set the window to 1280x800. Pin the BugBrief icon. Zoom 100%.
+3. Set the window to 1280x800. Pin the Conscribe icon. Zoom 100%.
 4. Run `npm run demo:reset` so the shop is in its broken state.
 5. Have a Claude Code prompt box ready in another window. Do not show any earlier session.
 
@@ -23,7 +23,7 @@ This script is for replacing it with a true screen recording: about 30 s, 1280x8
 | 18 to 24 s | Type the note: "Go to Checkout does nothing: the order fails with a 500 and the page throws an error." Click **Preview**. | The redaction count, the screenshot warning, `[REDACTED]` in the page address | Secrets removed before anything is shown. |
 | 24 to 28 s | Click **Copy**. | "Copied to the clipboard." | One report, on your clipboard. |
 | 28 to 32 s | Switch to the prompt box and paste. Stop there. | The pasted report | Paste it to your agent. |
-| 32 to 35 s | End card, hold 2 s. | Logo and `github.com/Junaid-Salman/bugbrief` | BugBrief. Free and open source. |
+| 32 to 35 s | End card, hold 2 s. | Logo and `github.com/Junaid-Salman/conscribe` | Conscribe. Free and open source. |
 
 ## After recording
 

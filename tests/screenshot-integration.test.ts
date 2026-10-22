@@ -169,7 +169,7 @@ describe('what the capture flow logs (criterion 14, N2)', () => {
   });
 
   it('debug build: the existing "picked element" line may carry page data by design, but never the image', async () => {
-    vi.stubEnv('VITE_BUGBRIEF_DEBUG', 'true');
+    vi.stubEnv('VITE_CONSCRIBE_DEBUG', 'true');
     await runFlow();
     const output = consoleOutput();
     expect(output).toContain('picked element'); // log.debug in picker-flow.ts, debug builds only

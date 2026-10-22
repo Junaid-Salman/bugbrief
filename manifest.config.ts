@@ -2,7 +2,7 @@ import { defineManifest } from '@crxjs/vite-plugin';
 
 export default defineManifest({
   manifest_version: 3,
-  name: 'BugBrief',
+  name: 'Conscribe',
   version: '1.0.0',
   description:
     'Package console errors, failed requests, the broken element and a screenshot into one agent-ready Markdown report.',
@@ -14,5 +14,5 @@ export default defineManifest({
   },
   permissions: ['debugger', 'activeTab', 'scripting', 'storage', 'downloads'],
   background: { service_worker: 'src/background/index.ts', type: 'module' },
-  action: { default_popup: 'src/popup/index.html', default_title: 'BugBrief' },
+  action: { default_popup: 'src/popup/index.html', default_title: 'Conscribe' },
 });

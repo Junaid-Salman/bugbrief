@@ -12,7 +12,7 @@ describe('site/privacy.html', () => {
     expect(text).toContain('Changes to this policy');
   });
 
-  it('names every kind of data BugBrief reads', () => {
+  it('names every kind of data Conscribe reads', () => {
     for (const kind of ['page content', 'a screenshot of that element', 'the addresses (URLs)', 'requests and responses', 'console errors and messages', 'personal data', 'sign-in tokens', 'form values', 'authentication information']) {
       expect(text, kind).toContain(kind);
     }
@@ -34,7 +34,7 @@ describe('site/privacy.html', () => {
   });
 
   it('is honest about redaction and the screenshot, with the canonical sentence', () => {
-    expect(text).toContain('BugBrief masks secrets it recognizes, such as tokens, keys, passwords and email addresses');
+    expect(text).toContain('Conscribe masks secrets it recognizes, such as tokens, keys, passwords and email addresses');
     expect(text).toContain('The screenshot is not masked at all');
     expect(text).toContain('some AI provider keys');
     expect(text).not.toMatch(/removes all|removed before anything is shown|redacted before anything is shown|common secrets|collects no data|no data (is )?collected/i);
@@ -49,7 +49,7 @@ describe('site/privacy.html', () => {
 
   it('mentions children and gives a contact that is the GitHub issues page', () => {
     expect(text).toContain('not directed at children');
-    expect(policy).toContain('href="https://github.com/Junaid-Salman/bugbrief/issues"');
+    expect(policy).toContain('href="https://github.com/Junaid-Salman/conscribe/issues"');
   });
 
   it('loads nothing from another host: no script, stylesheet link, image, font, import or frame', () => {
@@ -59,7 +59,7 @@ describe('site/privacy.html', () => {
   it('is a complete page: language, viewport, title', () => {
     expect(policy).toContain('<html lang="en">');
     expect(policy).toContain('name="viewport"');
-    expect(policy).toContain('<title>BugBrief Privacy Policy</title>');
+    expect(policy).toContain('<title>Conscribe Privacy Policy</title>');
   });
 });
 
@@ -80,7 +80,7 @@ describe('store/ documents', () => {
   });
 
   it('uses the canonical redaction sentence and none of the banned claims', () => {
-    expect(store('listing.md')).toContain('BugBrief masks secrets it recognizes, such as tokens, keys, passwords and email addresses.');
+    expect(store('listing.md')).toContain('Conscribe masks secrets it recognizes, such as tokens, keys, passwords and email addresses.');
     for (const name of ['listing.md', 'justifications.md', 'data-usage.md', 'test-instructions.md']) {
       expect(store(name), name).not.toMatch(/removes all|removed before anything is shown|common secrets|collects no data/i);
     }
@@ -113,8 +113,9 @@ describe('store/ documents', () => {
 
 describe('privacy policy URL', () => {
   it('is the deployed address in the data-usage answers', () => {
-    expect(read('store/data-usage.md')).toContain('https://bugbrief-bice.vercel.app/privacy');
-    expect(read('store/data-usage.md')).not.toContain('<vercel-project>');
+    const usage = read('store/data-usage.md');
+    expect(usage).toMatch(/https:\/\/(<NEW-VERCEL-HOST>|[a-z0-9-]+\.vercel\.app)\/privacy/);
+    expect(usage).not.toContain('bugbrief-bice');
   });
 
   it('has a short version that fits the dashboard limit of 500 characters', () => {

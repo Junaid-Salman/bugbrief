@@ -22,7 +22,7 @@ describe('checkPackage', () => {
     expect(checkPackage(good, { ...manifest, content_security_policy: {} }, text).join()).toMatch(/content_security_policy/);
   });
   it('does not flag plain https strings that are not loaded as code', () => {
-    expect(checkPackage(good, manifest, () => 'const url = "https://github.com/Junaid-Salman/bugbrief";')).toEqual([]);
+    expect(checkPackage(good, manifest, () => 'const url = "https://github.com/Junaid-Salman/conscribe";')).toEqual([]);
   });
 });
 

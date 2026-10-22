@@ -93,11 +93,11 @@ describe('README Testing section and the manual checklist (P9)', () => {
 
 describe('what the README says about data and redaction (P10, store policy)', () => {
   it('uses the canonical redaction sentence', () => {
-    expect(readme).toContain('BugBrief masks secrets it recognizes, such as tokens, keys, passwords and email addresses. It can miss others, and the screenshot is not masked, so read the report before you share it.');
+    expect(readme).toContain('Conscribe masks secrets it recognizes, such as tokens, keys, passwords and email addresses. It can miss others, and the screenshot is not masked, so read the report before you share it.');
   });
 
   it('names what is read, says it stays on the device, and carries the Limited Use statement', () => {
-    expect(readme).toContain('**What BugBrief reads.**');
+    expect(readme).toContain('**What Conscribe reads.**');
     for (const kind of ['page content', 'a screenshot of it', 'the addresses (URLs)', 'requests and responses', 'console messages', 'personal data', 'sign-in tokens', 'never sent anywhere']) {
       expect(readme, kind).toContain(kind);
     }

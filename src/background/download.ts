@@ -17,8 +17,8 @@ export interface DownloadDeps {
 
 export type DownloadResult = { ok: true; files: string[] } | { ok: false; error: string };
 
-export const markdownName = (stamp: string): string => `bugbrief/capsule-${stamp}.md`;
-export const pngName = (stamp: string): string => `bugbrief/capsule-${stamp}.png`;
+export const markdownName = (stamp: string): string => `conscribe/capsule-${stamp}.md`;
+export const pngName = (stamp: string): string => `conscribe/capsule-${stamp}.png`;
 export const markdownDataUrl = (markdown: string): string => `data:text/markdown;charset=utf-8,${encodeURIComponent(markdown)}`;
 
 /**

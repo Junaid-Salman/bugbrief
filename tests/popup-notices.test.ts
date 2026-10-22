@@ -77,7 +77,7 @@ describe('first-run disclosure', () => {
   const everything = [COPY.explainerReadsTitle, ...COPY.explainerReads, ...COPY.explainerPoints, COPY.agree].join(' ');
   const source = (name: string) => readFileSync(new URL(`../src/popup/${name}`, import.meta.url), 'utf8');
 
-  it('names every kind of data BugBrief reads from the recorded tab', () => {
+  it('names every kind of data Conscribe reads from the recorded tab', () => {
     const reads = COPY.explainerReads.join(' ').toLowerCase();
     for (const kind of ['page content', 'screenshot', 'addresses (urls)', 'requests and responses', 'console', 'personal data', 'sign-in tokens']) {
       expect(reads, kind).toContain(kind);
@@ -92,7 +92,7 @@ describe('first-run disclosure', () => {
 
   it('uses the canonical redaction wording and says the screenshot is not masked', () => {
     const points = COPY.explainerPoints.join(' ');
-    expect(points).toContain('BugBrief masks secrets it recognizes, such as tokens, keys, passwords and email addresses.');
+    expect(points).toContain('Conscribe masks secrets it recognizes, such as tokens, keys, passwords and email addresses.');
     expect(points).toContain('It can miss others');
     expect(points).toContain('the screenshot is not masked');
     expect(points).toContain('read the report before you share it');

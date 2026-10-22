@@ -14,7 +14,7 @@ let manifest: { web_accessible_resources?: Array<{ matches: string[]; resources:
 let workerFiles: string[] = [];
 
 beforeAll(async () => {
-  out = mkdtempSync(join(tmpdir(), 'bugbrief-build-'));
+  out = mkdtempSync(join(tmpdir(), 'conscribe-build-'));
   await build({
     root,
     configFile: join(root, 'vite.config.ts'),

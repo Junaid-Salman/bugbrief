@@ -7,7 +7,7 @@ declare module '*?iife' {
 
 interface ImportMetaEnv {
   /** "true" in a debug build. Enables logs that may contain captured page data. */
-  readonly VITE_BUGBRIEF_DEBUG?: string;
+  readonly VITE_CONSCRIBE_DEBUG?: string;
 }
 
 interface ImportMeta {

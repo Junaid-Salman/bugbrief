@@ -460,7 +460,7 @@ describe('debugger session with a mocked chrome API', () => {
       const stopping = session.stopRecording();
       await vi.advanceTimersByTimeAsync(2500);
       await stopping;
-      expect(vi.mocked(console.warn).mock.calls.some((call) => call[0] === '[BugBrief] drain timed out')).toBe(true);
+      expect(vi.mocked(console.warn).mock.calls.some((call) => call[0] === '[Conscribe] drain timed out')).toBe(true);
       vi.useRealTimers();
     });
 
@@ -726,16 +726,16 @@ describe('debugger session with a mocked chrome API', () => {
       // P7: the capsule needs the title and viewport in every build, so the read is no longer debug-only.
       const reads = env.sent.filter((call) => call.method === 'Runtime.evaluate' && String((call.params as { expression?: string })?.expression).includes('innerWidth'));
       expect(reads.length).toBeGreaterThanOrEqual(2); // Start and Stop
-      expect(vi.mocked(console.log).mock.calls.some((call) => call[0] === '[BugBrief] recording stopped')).toBe(true);
+      expect(vi.mocked(console.log).mock.calls.some((call) => call[0] === '[Conscribe] recording stopped')).toBe(true);
     });
 
     it('prints entry lines, the summary and reads the metadata in a debug build', async () => {
-      vi.stubEnv('VITE_BUGBRIEF_DEBUG', 'true');
+      vi.stubEnv('VITE_CONSCRIBE_DEBUG', 'true');
       const { env } = await recordSecrets();
       const lines = vi.mocked(console.log).mock.calls.map((call) => call[0]);
-      expect(lines).toContain('[BugBrief] console');
-      expect(lines).toContain('[BugBrief] network');
-      expect(lines).toContain('[BugBrief] buffer summary');
+      expect(lines).toContain('[Conscribe] console');
+      expect(lines).toContain('[Conscribe] network');
+      expect(lines).toContain('[Conscribe] buffer summary');
       expect(env.sent.some((call) => call.method === 'Runtime.evaluate')).toBe(true);
     });
   });

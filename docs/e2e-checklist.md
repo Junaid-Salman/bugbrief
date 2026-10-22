@@ -28,9 +28,9 @@ Set aside about 90 minutes. Fill in the **Result** column as you go (Pass, Fail 
 
 | # | Do | Expect | Result |
 |---|---|---|---|
-| 1 | `git clone https://github.com/Junaid-Salman/bugbrief.git`, then `cd bugbrief` (or use your checkout, on a clean working tree) | | |
+| 1 | `git clone https://github.com/Junaid-Salman/conscribe.git`, then `cd conscribe` (or use your checkout, on a clean working tree) | | |
 | 2 | `npm ci`, then `npm run build` | The build finishes without errors | |
-| 3 | In Chrome use a clean profile (no other extensions, no other tabs). Open `chrome://extensions`, turn on **Developer mode**, **Load unpacked**, choose `dist/`. Pin the BugBrief icon | The BugBrief logo is the toolbar icon | |
+| 3 | In Chrome use a clean profile (no other extensions, no other tabs). Open `chrome://extensions`, turn on **Developer mode**, **Load unpacked**, choose `dist/`. Pin the Conscribe icon | The Conscribe logo is the toolbar icon | |
 | 4 | `npm run demo` in a terminal and leave it running | It prints the shop and lab addresses | |
 | 5 | In another terminal run `npm run build` and `npm test` three times | Zero errors each time (this is criterion 6) | |
 
@@ -40,8 +40,8 @@ Open `http://localhost:5174/?token=demo-session-3b7f1c9e2a`. The page should loo
 
 | # | Do | Expect | Result |
 |---|---|---|---|
-| A1 | Click the BugBrief icon the first time | The first-run disclosure. It lists what BugBrief reads (page content, a screenshot, URLs, request and response contents, console messages, anything the page shows or sends), says it all stays on your device, and says screenshots are **not** masked. Read the list of what BugBrief reads and click **I understand, continue** | |
-| A2 | Click **Start recording** | Chrome shows "BugBrief started debugging this browser". The popup shows Recording | |
+| A1 | Click the Conscribe icon the first time | The first-run disclosure. It lists what Conscribe reads (page content, a screenshot, URLs, request and response contents, console messages, anything the page shows or sends), says it all stays on your device, and says screenshots are **not** masked. Read the list of what Conscribe reads and click **I understand, continue** | |
+| A2 | Click **Start recording** | Chrome shows "Conscribe started debugging this browser". The popup shows Recording | |
 | A3 | Click the page, press `F5` to reload | The page reloads | |
 | A4 | Open the popup | Record shows **2 errors** and **1 failed request** (the `TypeError` and the page's `console.error`; the `POST /api/orders` that returns 500). Write down the exact counts: ______ | |
 | A5 | Click **Stop recording** | The banner disappears. The popup shows Stopped and keeps the counts | |
@@ -57,13 +57,13 @@ Open `http://localhost:5174/?token=demo-session-3b7f1c9e2a`. The page should loo
 | A15 | **Crop.** Open the PNG. "Correct" means: the whole picked element is in it, and no more than 16 px of page around each side | Pass or fail, with a note. Repeat the pick at 150% browser zoom (`Ctrl` and `+`) and in a window short enough to show a vertical scrollbar | |
 | A16 | Click **Clear** | The note and the preview disappear and the counts reset | |
 
-Save the pasted capsule from A9 to a local file outside the repo (for example `~/bugbrief-real-capsule.md`). Do not commit it and do not paste it anywhere: it holds page content.
+Save the pasted capsule from A9 to a local file outside the repo (for example `~/conscribe-real-capsule.md`). Do not commit it and do not paste it anywhere: it holds page content.
 
 ## B. Resilience
 
 | # | Do | Expect | Result |
 |---|---|---|---|
-| B1 | Start recording on the shop. Open `chrome://serviceworker-internals`, find BugBrief's worker and click **Stop**. Reopen the popup | Within about 2 s it shows **Recording** (not Stopped) and the counts are still there | |
+| B1 | Start recording on the shop. Open `chrome://serviceworker-internals`, find Conscribe's worker and click **Stop**. Reopen the popup | Within about 2 s it shows **Recording** (not Stopped) and the counts are still there | |
 | B2 | Reload the shop a few times while the popup is open | Status stays Recording. The counts grow | |
 | B3 | Close the recorded tab | The debugger banner goes away. Open the popup on another tab: it shows Stopped. The counts are kept (open the shop in a new tab to see them) | |
 | B4 | Start recording again. Click **Cancel** on the Chrome banner, reopen the popup | Status is Stopped. A request that was still in flight is counted | |
@@ -87,7 +87,7 @@ Start recording on the lab page first. Reopen the popup after each action to rea
 | D1 | Start recording, type a note, Stop with nothing captured (no errors, no pick). Close and reopen the popup | The note is still there, **Preview** is off, the hint says "Nothing to report yet", and only the Record step is highlighted | |
 | D2 | With a preview showing, try to make Copy fail. A real popup rarely fails to copy, so this may not be possible by hand: mark it **Skipped** if you cannot. (The harness shows the case: `npm run build`, then `node scripts/popup-harness.mjs copy-fail`) | A "Could not copy: …" message shows at the top of the popup without scrolling | |
 | D3 | Copy successfully, then scroll the popup to the bottom | "Copied to the clipboard." is still visible at the top | |
-| D4 | Open the popup on `chrome://extensions` after a recording | "BugBrief can't record this page." shows above the steps, with Record folded | |
+| D4 | Open the popup on `chrome://extensions` after a recording | "Conscribe can't record this page." shows above the steps, with Record folded | |
 | D5 | Every popup action works from the real popup: Start, Stop, Pick, Preview, Copy, Download, Clear | Nothing says "Not allowed." (the popup is accepted by the new sender checks) | |
 
 ## E. Checks carried over from earlier phases
@@ -102,7 +102,7 @@ Start recording on the lab page first. Reopen the popup after each action to rea
 | E4 | Click **Slow-body 500 (1.5 s)** and Stop within 1.5 s | The failed-request count includes it right after Stop and does not change afterwards | |
 | E5 | Freeze the tab, then press **Start** | Within about 3 s the popup shows an error or Recording, never a stuck busy state | |
 | E6 | Start on a healthy tab | Behaves normally | |
-| E7 | Build with `npm run build:debug`, reload the extension, record the demo errors and a 500, Stop. Open the worker console (`chrome://extensions`, BugBrief, "service worker") | Entry lines and a buffer summary are logged | |
+| E7 | Build with `npm run build:debug`, reload the extension, record the demo errors and a 500, Stop. Open the worker console (`chrome://extensions`, Conscribe, "service worker") | Entry lines and a buffer summary are logged | |
 | E8 | Build normally again (`npm run build`), repeat | Only lines like "recording started" and "recording stopped" and warnings. No URLs, bodies or titles | |
 
 **Picker and screenshot (phases 5 and 6). Use `/lab`.** After each pick, open the popup, Preview and Download the PNG.

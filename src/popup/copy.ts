@@ -13,7 +13,7 @@ export const COPY = {
   download: 'Download',
   clear: 'Clear',
   agree: 'I understand, continue',
-  explainerReadsTitle: 'What BugBrief reads from the tab you record',
+  explainerReadsTitle: 'What Conscribe reads from the tab you record',
   explainerReads: [
     'The page content and the element you pick, and a screenshot of it.',
     'The addresses (URLs) the page uses, and the contents of its requests and responses.',
@@ -23,7 +23,7 @@ export const COPY = {
   explainerPoints: [
     'It reads only after you click Start recording, only on that tab, and stops when you click Stop.',
     'All of it stays on your device. It is kept in memory until you click Clear or close the browser, and is never sent anywhere.',
-    'BugBrief masks secrets it recognizes, such as tokens, keys, passwords and email addresses. It can miss others, and the screenshot is not masked, so read the report before you share it.',
+    'Conscribe masks secrets it recognizes, such as tokens, keys, passwords and email addresses. It can miss others, and the screenshot is not masked, so read the report before you share it.',
   ],
   live: 'Live',
   recordTitle: 'Record',

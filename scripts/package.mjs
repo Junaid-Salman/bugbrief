@@ -1,4 +1,4 @@
-// Builds the Chrome Web Store upload: bugbrief-<version>.zip from the contents of dist/.
+// Builds the Chrome Web Store upload: conscribe-<version>.zip from the contents of dist/.
 // Usage: npm run package   (run `npm run build` first)
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
@@ -47,7 +47,7 @@ export function run() {
   const files = listFiles(dist);
   const problems = checkPackage(files, manifest, (file) => readFileSync(join(dist, file), 'utf8'));
   if (problems.length) throw new Error(`Package is not ready:\n- ${problems.join('\n- ')}`);
-  const target = join(root, `bugbrief-${manifest.version}.zip`);
+  const target = join(root, `conscribe-${manifest.version}.zip`);
   rmSync(target, { force: true });
   try {
     execFileSync('zip', ['-rX', target, '.'], { cwd: dist, stdio: 'ignore' });

@@ -5,9 +5,9 @@ import { elements, elementsReady } from './element';
 import { injectPicker } from './inject-picker';
 import { log } from './log';
 
-export const REOPEN_MESSAGE = 'Reopen BugBrief on this tab and try again.';
+export const REOPEN_MESSAGE = 'Reopen Conscribe on this tab and try again.';
 export const FILE_URL_MESSAGE =
-  'BugBrief needs "Allow access to file URLs" turned on for the extension to pick on a file:// page.';
+  'Conscribe needs "Allow access to file URLs" turned on for the extension to pick on a file:// page.';
 export { OTHER_TAB_MESSAGE };
 
 const NO_ACCESS = /cannot access|must request permission|missing host permission/i;

@@ -6,12 +6,12 @@ import manifest from './manifest.config.ts';
 /**
  * CRXJS lists every dynamic script (the picker) under web_accessible_resources for all http and
  * https pages. `executeScript({ files })` does not need that entry, and it would let any website
- * fetch the file and detect that BugBrief is installed, so the production build drops it.
+ * fetch the file and detect that Conscribe is installed, so the production build drops it.
  * `renderCrxManifest` is CRXJS's own manifest hook.
  */
 function dropWebAccessibleResources(): Plugin {
   return {
-    name: 'bugbrief:drop-web-accessible-resources',
+    name: 'conscribe:drop-web-accessible-resources',
     apply: 'build',
     enforce: 'post',
     // @ts-expect-error renderCrxManifest is a CRXJS hook, not part of Vite's Plugin type

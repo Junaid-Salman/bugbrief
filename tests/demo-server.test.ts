@@ -24,7 +24,7 @@ describe('pages', () => {
     expect(await shop.text()).toContain('Demo Shop');
     const lab = await fetch(`${base}/lab`);
     expect(lab.status).toBe(200);
-    expect(await lab.text()).toContain('BugBrief Demo');
+    expect(await lab.text()).toContain('Conscribe Demo');
   });
 
   it('serves the shop script and stylesheet with the right types', async () => {

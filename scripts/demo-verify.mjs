@@ -22,7 +22,7 @@ export async function verifyDemo(folder = repoDemo) {
   check('the demo files exist', missing.length === 0, `missing: ${missing.join(', ')}`);
   if (missing.length > 0) return { ok: false, results };
 
-  const work = mkdtempSync(join(tmpdir(), 'bugbrief-verify-'));
+  const work = mkdtempSync(join(tmpdir(), 'conscribe-verify-'));
   let server;
   let dom;
   const cleanups = [];

@@ -107,7 +107,7 @@ beforeEach(() => {
 afterEach(() => {
   // A picker left active would keep its window listeners and swallow events in the next test.
   for (const handle of rig.handles) handle.cancel();
-  (window as unknown as { __bugbriefPicker?: boolean }).__bugbriefPicker = false;
+  (window as unknown as { __conscribePicker?: boolean }).__conscribePicker = false;
   vi.restoreAllMocks();
 });
 
@@ -126,7 +126,7 @@ describe('lifecycle (criterion 2)', () => {
     const handle = rig.start() as PickerHandle;
     handle.host.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     expect(overlayCount()).toBe(before);
-    expect((window as unknown as { __bugbriefPicker?: boolean }).__bugbriefPicker).toBe(false);
+    expect((window as unknown as { __conscribePicker?: boolean }).__conscribePicker).toBe(false);
     expect(rig.start()).toBeDefined();
     expect(overlayCount()).toBe(before + 1);
   });
