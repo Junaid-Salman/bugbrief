@@ -26,4 +26,4 @@ Health, financial and personal communications are left unticked: Conscribe does 
 No.
 
 ## Privacy policy URL
-`https://<NEW-VERCEL-HOST>/privacy` (from `site/privacy.html`; fill in after the new Vercel project is deployed. The old project is retired).
+`https://conscribe.vercel.app/privacy` (from `site/privacy.html`, deployed with `npx vercel deploy --prod` from `site/`).

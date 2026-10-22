@@ -114,7 +114,7 @@ describe('store/ documents', () => {
 describe('privacy policy URL', () => {
   it('is the deployed address in the data-usage answers', () => {
     const usage = read('store/data-usage.md');
-    expect(usage).toMatch(/https:\/\/(<NEW-VERCEL-HOST>|[a-z0-9-]+\.vercel\.app)\/privacy/);
+    expect(usage).toContain('https://conscribe.vercel.app/privacy');
     expect(usage).not.toContain('bugbrief-bice');
   });
 
